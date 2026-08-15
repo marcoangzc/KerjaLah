@@ -64,7 +64,7 @@ object ApplicationRepository {
         val job = JobRepository.jobs.value.find { it.id == jobId }
         val student = UserRepository.currentUser.value
         val ai = if (job != null && student != null) {
-            withTimeoutOrNull(12_000) { GeminiClient.assessApplication(job, student) }
+            withTimeoutOrNull(12_000) { AiClient.assessApplication(job, student) }
         } else {
             null
         }

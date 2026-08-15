@@ -14,7 +14,6 @@ import io.ktor.http.isSuccess
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -29,17 +28,14 @@ data class AiAssessment(
     val reason: String,
 )
 
-// [B] Module 3 (AI phase) - one small client for the Gemini API.
+// [B] Module 3 (AI phase) - one small client for the Groq API.
 // Called ONCE per application, in the background, when a student applies.
 // Any failure returns null: applying must NEVER be blocked by the AI.
-object GeminiClient {
+object AiClient {
 
-    private const val TAG = "GeminiClient"
-    // gemini-2.5-flash returns 404 for new projects/keys (superseded by 3.x);
-    // 3.5-flash is the current stable flash model.
-    private const val MODEL = "gemini-3.5-flash"
-    private const val URL =
-        "https://generativelanguage.googleapis.com/v1beta/models/$MODEL:generateContent"
+    private const val TAG = "AiClient"
+    private const val MODEL = "llama-3.3-70b-versatile"
+    private const val URL = "https://api.groq.com/openai/v1/chat/completions"
 
     // Reuse the Ktor engine supabase-kt already brought in.
     private val http = HttpClient(CIO)
@@ -49,7 +45,7 @@ object GeminiClient {
         val prompt = """
             You are a hiring assistant for part-time student jobs in Malaysia.
             Rate how well this student matches this job.
-            Reply ONLY with JSON in exactly this shape:
+            Reply ONLY with valid JSON in exactly this shape:
             {"matchPercent": <integer 0-100>, "suggestedStatus": "ACCEPTED" or "REJECTED", "reason": "<one short sentence>"}
 
             Job: ${job.title} at ${job.companyName}, ${job.location}.
@@ -60,40 +56,42 @@ object GeminiClient {
             Bio: ${student.bio.ifBlank { "(no bio provided)" }}
         """.trimIndent()
 
-        // Request body per the Gemini REST API; ask for pure JSON back.
+        // Request body for OpenAI-compatible API; ask for pure JSON back.
         val body = buildJsonObject {
-            putJsonArray("contents") {
+            put("model", MODEL)
+            putJsonArray("messages") {
                 addJsonObject {
-                    putJsonArray("parts") {
-                        addJsonObject { put("text", prompt) }
-                    }
+                    put("role", "user")
+                    put("content", prompt)
                 }
             }
-            putJsonObject("generationConfig") {
-                put("responseMimeType", "application/json")
+            putJsonObject("response_format") {
+                put("type", "json_object")
             }
         }
 
         val response = http.post(URL) {
             contentType(ContentType.Application.Json)
-            header("x-goog-api-key", BuildConfig.GEMINI_API_KEY)
+            header("Authorization", "Bearer ${BuildConfig.GROQ_API_KEY}")
             setBody(body.toString())
         }
         val raw = response.bodyAsText()
-        if (!response.status.isSuccess()) error("Gemini HTTP ${response.status}: $raw")
+        if (!response.status.isSuccess()) error("Groq HTTP ${response.status}: $raw")
 
-        // Dig out candidates[0].content.parts[0].text, then parse that JSON.
+        // Extract from choices[0].message.content, then parse that JSON.
         val text = json.parseToJsonElement(raw)
-            .jsonObject.getValue("candidates").jsonArray[0]
-            .jsonObject.getValue("content")
-            .jsonObject.getValue("parts").jsonArray[0]
-            .jsonObject.getValue("text").jsonPrimitive.content
+            .jsonObject.getValue("choices").jsonArray[0]
+            .jsonObject.getValue("message")
+            .jsonObject.getValue("content").jsonPrimitive.content
         val obj = json.parseToJsonElement(text).jsonObject
 
+        val percentStr = obj.getValue("matchPercent").jsonPrimitive.content.trim()
+        val percent = percentStr.toIntOrNull()?.coerceIn(0, 100) ?: 0
+
         AiAssessment(
-            matchPercent = obj.getValue("matchPercent").jsonPrimitive.int.coerceIn(0, 100),
+            matchPercent = percent,
             suggestedStatus = obj.getValue("suggestedStatus").jsonPrimitive.content,
             reason = obj.getValue("reason").jsonPrimitive.content,
         )
-    }.onFailure { Log.e(TAG, "Gemini call failed", it) }.getOrNull()
+    }.onFailure { Log.e(TAG, "Groq call failed", it) }.getOrNull()
 }
