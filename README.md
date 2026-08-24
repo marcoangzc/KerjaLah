@@ -15,6 +15,7 @@ applicant fits the job — while the final decision always stays with the human 
 ![minSdk](https://img.shields.io/badge/minSdk-24-brightgreen)
 
 📦 Latest APK: [Releases](../../releases)
+📚 New to the codebase? Start with **[ONBOARDING.md](ONBOARDING.md)** — a zero-basis guide (中文) covering Kotlin, Jetpack Compose, UDF, SQL/Supabase and AI prompting, tailored to this repo.
 
 ---
 
@@ -32,11 +33,11 @@ applicant fits the job — while the final decision always stays with the human 
 ## 🔄 How It Works
 
 ```
- Student applies ──▶ Supabase INSERT (status = PENDING)
+ Student taps Apply ──▶ AI Advisor (Groq · Llama 3.3) scores the match (~12 s budget)
                           │
                           ▼
-              AI Advisor (Groq · Llama 3.3) scores the match in the background
-              → { matchPercent, suggestedStatus, reason }
+              Supabase INSERT (status = PENDING, advice rides along:
+              ai_match_percent / ai_suggested_status / ai_reason)
                           │
                           ▼
  Employer opens the applicant → sees match % + AI suggestion
@@ -48,7 +49,10 @@ applicant fits the job — while the final decision always stays with the human 
  Realtime push ──▶ Student's application list updates instantly
 ```
 
-*The AI call is fire-and-forget: any failure returns `null` and **never blocks** the application.*
+*The advisor never gates the application: any failure or time-out simply inserts
+the row without advice. RLS lets students INSERT but not UPDATE, so the advice
+must ride along with the insert itself. The apply flow is also `NonCancellable`
+— leaving the screen while the advisor runs can never lose the application.*
 
 ---
 
@@ -106,7 +110,7 @@ supabase_schema.sql      # Run once in Supabase SQL Editor
 
 ### 1 · Clone
 ```bash
-git clone https://github.com/anonymous-ang/KerjaLah.git
+git clone https://github.com/marcoangzc/KerjaLah.git
 cd KerjaLah
 ```
 
