@@ -7,6 +7,7 @@ import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 // [B] Module 3 - Application repository, now backed by Supabase.
@@ -52,39 +54,65 @@ object ApplicationRepository {
         applications.map { list -> list.find { it.id == appId } }
 
     // --- CRUD: Create (Apply). False if already applied. ---
-    // AI phase: ask Gemini for a match assessment ONCE, in the background,
-    // and store it WITH the new row. If the AI fails or times out, the
-    // student still applies normally - AI advises, it never gates.
-    suspend fun apply(jobId: String, studentId: String): Boolean {
-        val duplicate = _applications.value.any {
-            it.jobId == jobId && it.studentId == studentId
-        }
-        if (duplicate) return false // DB unique(job_id, student_id) also guards
+    // The AI advisor runs BEFORE the insert because RLS lets students
+    // INSERT their own rows but never UPDATE them - so the advice must
+    // ride along with the insert payload. If the advisor fails or times
+    // out, the row is still inserted WITHOUT advice: AI advises, it
+    // never gates the application.
+    //
+    // Robustness rules (why the advisor no longer "sometimes disappears"):
+    // 1. applied_at is captured BEFORE the advisor call (tap time, not +12s).
+    // 2. A jobs-cache miss no longer silently skips the advisor - we fetch
+    //    that single row straight from the DB instead.
+    // 3. NonCancellable: once started, the insert always completes even if
+    //    the student leaves the screen mid-wait (previously cancelling the
+    //    ViewModel scope could lose the whole application).
+    suspend fun apply(jobId: String, studentId: String): Boolean =
+        withContext(NonCancellable) {
+            val duplicate = _applications.value.any {
+                it.jobId == jobId && it.studentId == studentId
+            }
+            if (duplicate) return@withContext false // DB unique(job_id, student_id) also guards
 
-        val job = JobRepository.jobs.value.find { it.id == jobId }
-        val student = UserRepository.currentUser.value
-        val ai = if (job != null && student != null) {
-            withTimeoutOrNull(12_000) { AiClient.assessApplication(job, student) }
-        } else {
-            null
+            val appliedAt = System.currentTimeMillis()
+
+            val job = findJobForAdvisor(jobId)
+            if (job == null) Log.w(TAG, "Advisor skipped: job $jobId not found")
+            val student = UserRepository.currentUser.value
+            if (student == null) Log.w(TAG, "Advisor skipped: no logged-in user")
+
+            val ai = if (job != null && student != null) {
+                withTimeoutOrNull(12_000) { AiClient.assessApplication(job, student) }
+            } else {
+                null
+            }
+            if (ai == null) Log.w(TAG, "Inserting application WITHOUT advisor data")
+
+            val ok = runCatching {
+                supabase.from("applications").insert(
+                    ApplicationInsert(
+                        jobId = jobId,
+                        studentId = studentId,
+                        status = ApplicationStatus.PENDING.name,
+                        appliedAt = appliedAt,
+                        aiMatchPercent = ai?.matchPercent,
+                        aiSuggestedStatus = ai?.suggestedStatus,
+                        aiReason = ai?.reason,
+                    ),
+                )
+            }.onFailure { Log.e(TAG, "Apply failed", it) }.isSuccess
+            refresh()
+            ok
         }
 
-        val ok = runCatching {
-            supabase.from("applications").insert(
-                ApplicationInsert(
-                    jobId = jobId,
-                    studentId = studentId,
-                    status = ApplicationStatus.PENDING.name,
-                    appliedAt = System.currentTimeMillis(),
-                    aiMatchPercent = ai?.matchPercent,
-                    aiSuggestedStatus = ai?.suggestedStatus,
-                    aiReason = ai?.reason,
-                ),
-            )
-        }.onFailure { Log.e(TAG, "Apply failed", it) }.isSuccess
-        refresh()
-        return ok
-    }
+    // Cache-first lookup with a single-row fetch as fallback, so a slow
+    // jobs list can never silently disable the advisor.
+    private suspend fun findJobForAdvisor(jobId: String): Job? =
+        JobRepository.jobs.value.find { it.id == jobId } ?: runCatching {
+            supabase.from("jobs").select {
+                filter { eq("id", jobId) }
+            }.decodeSingleOrNull<JobRow>()?.toDomain()
+        }.onFailure { Log.e(TAG, "Advisor job fetch failed", it) }.getOrNull()
 
     // --- CRUD: Update (employer decides). ---
     suspend fun updateStatus(appId: String, status: ApplicationStatus) {

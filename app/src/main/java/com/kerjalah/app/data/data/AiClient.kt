@@ -41,6 +41,15 @@ object AiClient {
     private val http = HttpClient(CIO)
     private val json = Json { ignoreUnknownKeys = true }
 
+    // Some models occasionally wrap the JSON payload in markdown fences
+    // even when response_format = json_object is requested.
+    // Slicing out the outermost {...} keeps parsing reliable.
+    private fun unwrapJson(text: String): String {
+        val first = text.indexOf('{')
+        val last = text.lastIndexOf('}')
+        return if (first in 0 until last) text.substring(first, last + 1) else text
+    }
+
     suspend fun assessApplication(job: Job, student: User): AiAssessment? = runCatching {
         val prompt = """
             You are a hiring assistant for part-time student jobs in Malaysia.
@@ -83,10 +92,11 @@ object AiClient {
             .jsonObject.getValue("choices").jsonArray[0]
             .jsonObject.getValue("message")
             .jsonObject.getValue("content").jsonPrimitive.content
-        val obj = json.parseToJsonElement(text).jsonObject
+        val obj = json.parseToJsonElement(unwrapJson(text)).jsonObject
 
         val percentStr = obj.getValue("matchPercent").jsonPrimitive.content.trim()
         val percent = percentStr.toIntOrNull()?.coerceIn(0, 100) ?: 0
+        Log.i(TAG, "Advisor OK: match ${percent}%")
 
         AiAssessment(
             matchPercent = percent,

@@ -33,7 +33,7 @@ create table public.applications (
   student_id uuid not null references public.profiles (id) on delete cascade,
   status text not null default 'PENDING' check (status in ('PENDING', 'ACCEPTED', 'REJECTED')),
   applied_at bigint not null, -- epoch millis, matches the Kotlin model
-  ai_match_percent int,       -- filled by Gemini later (suggestion only)
+  ai_match_percent int,       -- filled by the AI advisor at apply time (suggestion only)
   ai_suggested_status text,
   ai_reason text,
   unique (job_id, student_id) -- one application per student per job

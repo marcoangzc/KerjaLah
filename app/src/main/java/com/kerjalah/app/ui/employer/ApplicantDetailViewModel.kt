@@ -14,8 +14,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 // [B] Module 3 - Applicant Detail logic layer (employer side, UDF).
-// Accept / Reject are HUMAN decisions - later the AI (Gemini) only adds
-// a suggestion box here; it never presses these buttons itself.
+// Accept / Reject are HUMAN decisions - the AI advisor (Groq Llama 3.3)
+// only adds a suggestion box here; it never presses these buttons itself.
 class ApplicantDetailViewModel(private val appId: String) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ApplicantDetailUiState())

@@ -44,7 +44,8 @@ class JobDetailViewModel(private val jobId: String) : ViewModel() {
     }
 
     // Event from UI: apply for this job (Module 3).
-    // Takes a few seconds now: the Gemini advisor runs before the insert.
+    // Takes a few seconds: the AI advisor runs before the insert, and
+    // apply() is NonCancellable so leaving this screen cannot lose it.
     fun onApplyClick() {
         if (_isApplying.value) return // ignore double taps
         viewModelScope.launch {

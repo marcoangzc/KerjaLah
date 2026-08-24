@@ -39,7 +39,7 @@ import com.kerjalah.app.ui.application.StatusChip
 
 // [B] Module 3 - Applicant Detail screen (employer side, UDF).
 // The employer reviews the student and decides: accept or reject.
-// (The Gemini suggestion card plugs in here later - suggestions only.)
+// (The AI advisor suggestion card renders below when advice exists.)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ApplicantDetailScreen(
@@ -199,7 +199,7 @@ fun ApplicantDetailScreen(
     }
 }
 
-// [B] The Gemini advice card. Wording matters: it SUGGESTS, the human
+// [B] The AI advisor advice card. Wording matters: it SUGGESTS, the human
 // decides - that is our human-in-the-loop rule for the whole app.
 @Composable
 private fun AiSuggestionCard(
