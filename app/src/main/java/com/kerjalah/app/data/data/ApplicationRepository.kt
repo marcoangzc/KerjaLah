@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.Duration.Companion.milliseconds
 
 // [B] Module 3 - Application repository, now backed by Supabase.
 // Same public API as the mock version -> ViewModels unchanged.
@@ -82,7 +83,7 @@ object ApplicationRepository {
             if (student == null) Log.w(TAG, "Advisor skipped: no logged-in user")
 
             val ai = if (job != null && student != null) {
-                withTimeoutOrNull(12_000) { AiClient.assessApplication(job, student) }
+                withTimeoutOrNull(12_000.milliseconds) { AiClient.assessApplication(job, student) }
             } else {
                 null
             }
