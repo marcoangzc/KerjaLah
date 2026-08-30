@@ -11,7 +11,7 @@ applicant fits the job — while the final decision always stays with the human 
 ![Kotlin](https://img.shields.io/badge/Kotlin-100%25-7F52FF?logo=kotlin&logoColor=white)
 ![Jetpack Compose](https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4?logo=android&logoColor=white)
 ![Supabase](https://img.shields.io/badge/Backend-Supabase-3ECF8E?logo=supabase&logoColor=white)
-![AI](https://img.shields.io/badge/AI-Groq%20%C3%97%20Llama%203.3-F55036)
+![AI](https://img.shields.io/badge/AI-Groq%20%C3%97%20Qwen%203.8 26b-F55036)
 ![minSdk](https://img.shields.io/badge/minSdk-24-brightgreen)
 
 📦 Latest APK: [Releases](../../releases)
