@@ -66,7 +66,7 @@ must ride along with the insert itself. The apply flow is also `NonCancellable`
 | Backend      | Supabase (Auth · PostgREST · Realtime) |
 | Networking   | Ktor client (CIO engine) |
 | Serialization| kotlinx.serialization |
-| AI           | Groq API (`llama-3.3-70b-versatile`), OpenAI-compatible REST |
+| AI           | Groq API (`Qwen 3.8 26b`), OpenAI-compatible REST |
 | Navigation   | Navigation Compose (all routes centralized in `Routes.kt`) |
 
 ---
