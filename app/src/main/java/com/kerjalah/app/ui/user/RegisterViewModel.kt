@@ -2,7 +2,7 @@ package com.kerjalah.app.ui.user
 
 import android.util.Patterns
 import androidx.lifecycle.ViewModel
-import com.kerjalah.app.data.data.UserRepository
+import com.kerjalah.app.data.UserRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow

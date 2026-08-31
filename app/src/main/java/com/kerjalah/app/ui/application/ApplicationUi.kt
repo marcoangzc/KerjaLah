@@ -1,9 +1,10 @@
 package com.kerjalah.app.ui.application
 
-import com.kerjalah.app.data.data.Application
-import com.kerjalah.app.data.data.ApplicationStatus
-import com.kerjalah.app.data.data.Job
-import com.kerjalah.app.data.data.User
+import com.kerjalah.app.data.AiSuggestedStatus
+import com.kerjalah.app.data.Application
+import com.kerjalah.app.data.ApplicationStatus
+import com.kerjalah.app.data.Job
+import com.kerjalah.app.data.User
 
 // [B] UI model for the STUDENT side: one of my applications.
 data class ApplicationUi(
@@ -26,9 +27,18 @@ data class ApplicantUi(
     val jobTitle: String,
     val status: ApplicationStatus,
     val aiMatchPercent: Int? = null,     // null = AI had no advice
-    val aiSuggestedStatus: String? = null,
+    val aiSuggestedLabel: String? = null,
     val aiReason: String? = null,
 )
+
+// [B] The advisor's verdict in employer-facing words. The labels describe FIT
+// and never sound like a decision - "Accept"/"Reject" in an advisory box made
+// the AI read as the one doing the hiring.
+fun AiSuggestedStatus.label(): String = when (this) {
+    AiSuggestedStatus.STRONG_MATCH -> "Strong match"
+    AiSuggestedStatus.POSSIBLE_MATCH -> "Possible match"
+    AiSuggestedStatus.WEAK_MATCH -> "Weak match"
+}
 
 // [B] Transform: Application + its Job -> student-facing UI model.
 // The join happens in the ViewModel; formatting lives here (UDF toUi).
@@ -51,6 +61,6 @@ fun Application.toApplicantUi(student: User?, job: Job?) = ApplicantUi(
     jobTitle = job?.title ?: "Job no longer available",
     status = status,
     aiMatchPercent = aiMatchPercent,
-    aiSuggestedStatus = aiSuggestedStatus,
+    aiSuggestedLabel = aiSuggestedStatus?.label(),
     aiReason = aiReason,
 )

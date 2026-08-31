@@ -1,4 +1,4 @@
-package com.kerjalah.app.data.data
+package com.kerjalah.app.data
 
 import android.util.Log
 import io.github.jan.supabase.postgrest.from

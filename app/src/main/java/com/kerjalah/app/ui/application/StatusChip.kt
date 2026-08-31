@@ -7,7 +7,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.kerjalah.app.data.data.ApplicationStatus
+import com.kerjalah.app.data.ApplicationStatus
 
 // [B] Status chip shared by student AND employer screens.
 // One source of truth for status colors = transparent tracking everywhere.

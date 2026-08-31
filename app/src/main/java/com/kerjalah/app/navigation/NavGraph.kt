@@ -26,7 +26,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.navArgument
-import com.kerjalah.app.data.data.UserRole
+import com.kerjalah.app.data.UserRole
 import com.kerjalah.app.ui.application.ApplicationDetailScreen
 import com.kerjalah.app.ui.application.MyApplicationsScreen
 import com.kerjalah.app.ui.employer.ApplicantDetailScreen

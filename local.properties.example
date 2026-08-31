@@ -1,0 +1,24 @@
+# Copy this file to `local.properties` and fill in your own values.
+# `local.properties` is gitignored - never commit real keys.
+#
+# Android Studio writes sdk.dir itself when it first opens the project.
+#sdk.dir=C\:\\Users\\you\\AppData\\Local\\Android\\Sdk
+
+# Supabase -> Project Settings -> Data API
+SUPABASE_URL=https://your-project-ref.supabase.co
+
+# The ANON key, not the service_role key. It is safe on a device only because
+# Row Level Security decides what each logged-in user may touch - so never
+# paste the service_role key here, it bypasses RLS entirely.
+SUPABASE_ANON_KEY=your-anon-key
+
+# Base URL of the :advisor Ktor server. Not a secret - just an address; the
+# server authenticates every call with the caller's Supabase JWT.
+# 10.0.2.2 is how the Android emulator reaches your host machine, so this
+# default works with `./gradlew :advisor:run`. Use your LAN IP for a physical
+# device, and the HTTPS URL of your deployment for a release build.
+ADVISOR_BASE_URL=http://10.0.2.2:8080
+
+# NOTE: there is no GROQ_API_KEY any more. The AI advisor runs in the :advisor
+# server, because anything compiled into an APK can be extracted from it.
+# Set it as an environment variable on that server instead - see advisor/README.md.

@@ -27,7 +27,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.kerjalah.app.data.data.UserRole
+import com.kerjalah.app.data.UserRole
 
 // [B] Module 1 - Login screen (UI Layer, UDF).
 // Field values come DOWN from state; every keystroke goes UP to the VM.

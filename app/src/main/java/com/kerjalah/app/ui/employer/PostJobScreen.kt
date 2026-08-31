@@ -35,7 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.kerjalah.app.data.data.FairWage
+import com.kerjalah.app.data.FairWage
 
 // [A] Module 2 - Post / Edit Job screen (UI Layer, UDF).
 // Every keystroke goes UP to the ViewModel (onXxxChange),

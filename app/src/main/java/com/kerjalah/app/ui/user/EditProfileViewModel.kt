@@ -2,8 +2,8 @@ package com.kerjalah.app.ui.user
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.kerjalah.app.data.data.UserRepository
-import com.kerjalah.app.data.data.UserRole
+import com.kerjalah.app.data.UserRepository
+import com.kerjalah.app.data.UserRole
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
