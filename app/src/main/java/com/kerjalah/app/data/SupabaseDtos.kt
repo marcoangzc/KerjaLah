@@ -85,10 +85,16 @@ fun Job.toInsert() = JobInsert(
 
 // ---------- applications ----------
 
-// There is no ApplicationInsert: students no longer write this table from the
-// phone. Applying goes through the :advisor Ktor server (see AiClient), which
-// owns applied_at and the three ai_* columns (the client's INSERT grant is
-// narrowed to job_id/student_id/status at the database level).
+// Applying normally goes through the :advisor Ktor server (see AiClient),
+// which owns applied_at and the three ai_* columns. This payload is the
+// fallback for when the advisor is unreachable: exactly the three columns the
+// database still grants `authenticated` to insert, and not one more.
+@Serializable
+data class ApplicationInsert(
+    @SerialName("job_id") val jobId: String,
+    @SerialName("student_id") val studentId: String,
+    val status: String = "PENDING",
+)
 @Serializable
 data class ApplicationRow(
     val id: String,

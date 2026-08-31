@@ -72,12 +72,33 @@ object ApplicationRepository {
             }
             if (duplicate) return@withContext false // DB unique(job_id, student_id) also guards
 
-            val outcome = AiClient.assessAndApply(jobId)
+            val created = when (AiClient.assessAndApply(jobId)) {
+                AiClient.ApplyOutcome.CREATED -> true
+                // A DUPLICATE the local cache had not seen yet is still not a
+                // new application, so it reports false like the check above.
+                AiClient.ApplyOutcome.DUPLICATE -> false
+                // The advisor is unreachable (not running, or no network).
+                // "AI advises, it never gates" has to hold for the advisor
+                // being down too, not just for Groq being down - otherwise
+                // tapping Apply silently does nothing at all.
+                AiClient.ApplyOutcome.FAILED -> applyWithoutAdvice(jobId, studentId)
+            }
             refresh()
-            // A DUPLICATE the local cache had not seen yet is still not a new
-            // application, so it reports false exactly like the check above.
-            outcome == AiClient.ApplyOutcome.CREATED
+            created
         }
+
+    // Direct insert, no AI columns. This is the only write the client still
+    // has rights to: the database grants `authenticated` INSERT on exactly
+    // (job_id, student_id, status), so even this path cannot invent a match
+    // percentage or backdate applied_at.
+    private suspend fun applyWithoutAdvice(jobId: String, studentId: String): Boolean =
+        runCatching {
+            supabase.from("applications").insert(
+                ApplicationInsert(jobId = jobId, studentId = studentId),
+            )
+            Log.w(TAG, "Advisor unreachable - applied without AI advice")
+            true
+        }.onFailure { Log.e(TAG, "Fallback apply failed", it) }.getOrDefault(false)
 
     // --- CRUD: Update (employer decides). ---
     suspend fun updateStatus(appId: String, status: ApplicationStatus) {
