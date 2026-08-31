@@ -1,6 +1,6 @@
 package com.kerjalah.app.ui.user
 
-import com.kerjalah.app.data.data.UserRole
+import com.kerjalah.app.data.UserRole
 
 // [B] UI = UI Elements + UI State.
 // States for the whole auth flow: Splash -> Login -> Register -> Role.

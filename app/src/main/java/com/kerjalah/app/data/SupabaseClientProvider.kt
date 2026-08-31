@@ -1,4 +1,4 @@
-package com.kerjalah.app.data.data
+package com.kerjalah.app.data
 
 import com.kerjalah.app.BuildConfig
 import io.github.jan.supabase.SupabaseClient

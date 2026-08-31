@@ -156,13 +156,13 @@ fun ApplicantDetailScreen(
                             }
                         }
 
-                        // AI advisor card - shown ONLY to the employer, and
-                        // only when Gemini returned advice for this applicant.
+                        // AI advisor card - shown ONLY to the employer, and only
+                        // when the advisor server got advice back for them.
                         if (applicant.aiMatchPercent != null) {
                             Spacer(modifier = Modifier.height(16.dp))
                             AiSuggestionCard(
                                 matchPercent = applicant.aiMatchPercent,
-                                suggestedStatus = applicant.aiSuggestedStatus,
+                                suggestedLabel = applicant.aiSuggestedLabel,
                                 reason = applicant.aiReason,
                             )
                         }
@@ -204,7 +204,7 @@ fun ApplicantDetailScreen(
 @Composable
 private fun AiSuggestionCard(
     matchPercent: Int,
-    suggestedStatus: String?,
+    suggestedLabel: String?,
     reason: String?,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -229,9 +229,9 @@ private fun AiSuggestionCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    suggestedStatus?.let {
+                    suggestedLabel?.let {
                         Text(
-                            text = "Suggests: $it",
+                            text = "Assessed as: $it",
                             style = MaterialTheme.typography.bodyMedium,
                         )
                     }

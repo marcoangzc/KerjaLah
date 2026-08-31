@@ -2,9 +2,9 @@ package com.kerjalah.app.ui.employer
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.kerjalah.app.data.data.ApplicationRepository
-import com.kerjalah.app.data.data.JobRepository
-import com.kerjalah.app.data.data.UserRepository
+import com.kerjalah.app.data.ApplicationRepository
+import com.kerjalah.app.data.JobRepository
+import com.kerjalah.app.data.UserRepository
 import com.kerjalah.app.ui.application.toApplicantUi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

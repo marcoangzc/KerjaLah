@@ -1,7 +1,7 @@
 package com.kerjalah.app.ui.job
 
-import com.kerjalah.app.data.data.FairWage
-import com.kerjalah.app.data.data.Job
+import com.kerjalah.app.data.FairWage
+import com.kerjalah.app.data.Job
 
 // [A] UI model for one job. Screen only sees ready-to-show text.
 data class JobUi(

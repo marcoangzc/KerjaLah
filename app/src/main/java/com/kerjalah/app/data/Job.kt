@@ -1,4 +1,4 @@
-package com.kerjalah.app.data.data
+package com.kerjalah.app.data
 
 // [A] Module 2 - Job data model (Data Layer).
 // This is the source-of-truth shape of one job posting.

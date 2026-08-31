@@ -1,4 +1,4 @@
-package com.kerjalah.app.data.data
+package com.kerjalah.app.data
 
 import android.util.Log
 import io.github.jan.supabase.auth.auth
@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 // [B] Module 1 - User repository, now backed by Supabase Auth + profiles.
 // Same public surface as the mock; only return types of login/register
@@ -88,8 +90,15 @@ object UserRepository {
         pendingPassword = password
     }
 
-    // --- Register step 2: create auth user + profile row.
-    // Returns null on success, or a user-readable error message. ---
+    // --- Register step 2: create the auth user; the profile row follows. ---
+    // Returns null on success, or a user-readable error message.
+    //
+    // We no longer INSERT into profiles from here. Sign-up carries the role and
+    // name as user metadata, and the on_auth_user_created trigger writes the
+    // profile inside the same transaction as the auth user
+    // (see supabase_migration_01.sql). The old two-call version had no
+    // transaction: a dropped connection between them left an auth account with
+    // no profile, which could never log in and could not be retried.
     suspend fun completeRegistration(role: UserRole): String? {
         val name = pendingName ?: return "Registration info missing - please go back."
         val email = pendingEmail ?: return "Registration info missing - please go back."
@@ -98,14 +107,20 @@ object UserRepository {
             supabase.auth.signUpWith(Email) {
                 this.email = email
                 this.password = password
+                // The trigger sanitises these: anything that is not exactly
+                // "EMPLOYER" becomes a student, so metadata can never smuggle
+                // a value past the profiles role CHECK constraint.
+                this.data = buildJsonObject {
+                    put("role", role.name)
+                    put("name", name)
+                }
             }
             // Needs a live session right after sign-up. If this fails:
             // Supabase Dashboard -> Authentication -> disable "Confirm email".
             val uid = supabase.auth.currentUserOrNull()?.id
                 ?: error("No session after sign-up. Disable 'Confirm email' in Supabase Auth settings.")
-            val row = ProfileRow(id = uid, role = role.name, name = name, email = email)
-            supabase.from("profiles").insert(row)
-            _currentUser.value = row.toDomain()
+            _currentUser.value = fetchProfile(uid)
+                ?: error("Profile was not created. Check the on_auth_user_created trigger.")
             clearPending()
             null // success
         }.getOrElse { e ->
@@ -140,7 +155,7 @@ object UserRepository {
     }
 
     // --- Delete account. Client-side we remove the profile + sign out.
-    // Deleting the auth user itself needs a service key (Edge Function) -
+    // Deleting the auth user itself needs a service key (the :advisor server) -
     // out of scope; be ready to explain this trade-off to the tutor. ---
     suspend fun deleteAccount() {
         val current = _currentUser.value ?: return
@@ -153,6 +168,10 @@ object UserRepository {
     }
 
     // Refresh the profile list used for Module 3 joins.
+    // RLS now returns only your own row plus, for an employer, the students who
+    // actually applied to one of their jobs - not the whole user directory.
+    // These rows carry no email: profiles.email is gone and auth.users is
+    // readable only for yourself.
     suspend fun refreshUsers() {
         runCatching {
             supabase.from("profiles").select().decodeList<ProfileRow>()
@@ -161,10 +180,13 @@ object UserRepository {
         }.onFailure { Log.e(TAG, "Loading profiles failed", it) }
     }
 
+    // Your own profile, with the address taken from the session rather than
+    // from a duplicated profiles.email column.
     private suspend fun fetchProfile(uid: String): User? = runCatching {
+        val email = supabase.auth.currentUserOrNull()?.email.orEmpty()
         supabase.from("profiles").select {
             filter { eq("id", uid) }
-        }.decodeSingleOrNull<ProfileRow>()?.toDomain()
+        }.decodeSingleOrNull<ProfileRow>()?.toDomain(email)
     }.onFailure { Log.e(TAG, "Fetch profile failed", it) }.getOrNull()
 
     private fun clearPending() {

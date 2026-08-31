@@ -83,10 +83,9 @@ must ride along with the insert itself. The apply flow is also `NonCancellable`
 
 ```
 app/src/main/java/com/kerjalah/app/
-├── data/                # Models, repositories, Supabase & AI clients
+├── data/                # Models, repositories, Supabase client
 │   ├── SupabaseClientProvider.kt
-│   ├── AiClient.kt      # Groq-powered AI Advisor
-│   ├── FairWage.kt      # SDG 8 minimum-wage rule (single source of truth)
+│   ├── FairWage.kt      # SDG 8 minimum-wage rule (UI hint; DB has the real check)
 │   └── *Repository.kt   # StateFlow caches + Realtime subscriptions
 ├── navigation/          # Routes.kt + NavGraph (the only navigator)
 ├── ui/
@@ -96,8 +95,15 @@ app/src/main/java/com/kerjalah/app/
 │   ├── employer/        # Employer: postings, applicants, AI card
 │   └── theme/           # Material 3 theme
 └── MainActivity.kt
-supabase_schema.sql      # Run once in Supabase SQL Editor
+advisor/                     # Kotlin/JVM Ktor server: the AI Advisor
+└── src/main/kotlin/com/kerjalah/advisor/   # holds the Groq key, writes ai_*
+supabase_schema.sql          # Run once in Supabase SQL Editor
+supabase_migration_01.sql    # Then run this one
 ```
+
+Both modules are Kotlin: `:app` is the Android client, `:advisor` is a plain
+Kotlin/JVM server deployed separately. The app never depends on the server at
+build time — they only talk over HTTP.
 
 ---
 
@@ -115,20 +121,32 @@ cd KerjaLah
 ```
 
 ### 2 · Set up the database
-Supabase Dashboard → **SQL Editor** → paste the contents of `supabase_schema.sql` → **Run**.
-This creates the `profiles`, `jobs` and `applications` tables (with the `ai_*` advisor columns).
+Supabase Dashboard → **SQL Editor** → run these two, in order:
+1. `supabase_schema.sql` — creates the `profiles`, `jobs` and `applications` tables.
+2. `supabase_migration_01.sql` — RLS hardening, constraints, indexes and the sign-up trigger.
 
-### 3 · Configure secrets
-Create / edit `local.properties` in the project root.
+### 3 · Run the AI Advisor
+The advisor is a Kotlin Ktor server, so the Groq key never ships in the APK.
+Set its environment variables (see [`advisor/README.md`](advisor/README.md)), then:
+
+```bash
+./gradlew :advisor:run
+```
+
+### 4 · Configure the app
+Copy `local.properties.example` to `local.properties` and fill it in.
 ⚠️ This file is git-ignored — **never commit your keys**.
 
 ```properties
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your-anon-key
-GROQ_API_KEY=gsk_your-groq-key
+ADVISOR_BASE_URL=http://10.0.2.2:8080
 ```
 
-### 4 · Run
+There is no `GROQ_API_KEY` here any more: anything compiled into an APK can be
+extracted straight back out of it. It belongs to the advisor server only.
+
+### 5 · Run
 Open the project in Android Studio → **Sync Gradle** → press **Run ▶** on an emulator or device (minSdk 24).
 
 ---

@@ -1,4 +1,4 @@
-package com.kerjalah.app.data.data
+package com.kerjalah.app.data
 
 // [B] Bridge between Module 1 (auth) and Modules 2/3.
 // Other modules keep calling these properties unchanged;

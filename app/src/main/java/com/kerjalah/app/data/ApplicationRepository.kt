@@ -1,4 +1,4 @@
-package com.kerjalah.app.data.data
+package com.kerjalah.app.data
 
 import android.util.Log
 import io.github.jan.supabase.postgrest.from
@@ -18,8 +18,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
-import kotlin.time.Duration.Companion.milliseconds
 
 // [B] Module 3 - Application repository, now backed by Supabase.
 // Same public API as the mock version -> ViewModels unchanged.
@@ -54,20 +52,19 @@ object ApplicationRepository {
     fun getById(appId: String): Flow<Application?> =
         applications.map { list -> list.find { it.id == appId } }
 
-    // --- CRUD: Create (Apply). False if already applied. ---
-    // The AI advisor runs BEFORE the insert because RLS lets students
-    // INSERT their own rows but never UPDATE them - so the advice must
-    // ride along with the insert payload. If the advisor fails or times
-    // out, the row is still inserted WITHOUT advice: AI advises, it
-    // never gates the application.
+    // --- CRUD: Create (Apply). False if already applied or on failure. ---
     //
-    // Robustness rules (why the advisor no longer "sometimes disappears"):
-    // 1. applied_at is captured BEFORE the advisor call (tap time, not +12s).
-    // 2. A jobs-cache miss no longer silently skips the advisor - we fetch
-    //    that single row straight from the DB instead.
-    // 3. NonCancellable: once started, the insert always completes even if
-    //    the student leaves the screen mid-wait (previously cancelling the
-    //    ViewModel scope could lose the whole application).
+    // The whole apply flow now lives in the :advisor Ktor server: the phone
+    // says only "I want job X" (see AiClient), and the server verifies the JWT,
+    // loads the job and the student's own profile, scores the fit with Groq and
+    // writes the row. That is why the Groq key is no longer in the APK and why
+    // a student can no longer hand-write their own ai_match_percent.
+    //
+    // What is deliberately kept from the previous client-side version:
+    // - NonCancellable: once the request is away, leaving the screen must not
+    //   lose the application (cancelling the ViewModel scope used to).
+    // - The advisor never gates anything: if Groq fails or times out server
+    //   side, the server still inserts the row, just without advice.
     suspend fun apply(jobId: String, studentId: String): Boolean =
         withContext(NonCancellable) {
             val duplicate = _applications.value.any {
@@ -75,45 +72,12 @@ object ApplicationRepository {
             }
             if (duplicate) return@withContext false // DB unique(job_id, student_id) also guards
 
-            val appliedAt = System.currentTimeMillis()
-
-            val job = findJobForAdvisor(jobId)
-            if (job == null) Log.w(TAG, "Advisor skipped: job $jobId not found")
-            val student = UserRepository.currentUser.value
-            if (student == null) Log.w(TAG, "Advisor skipped: no logged-in user")
-
-            val ai = if (job != null && student != null) {
-                withTimeoutOrNull(12_000.milliseconds) { AiClient.assessApplication(job, student) }
-            } else {
-                null
-            }
-            if (ai == null) Log.w(TAG, "Inserting application WITHOUT advisor data")
-
-            val ok = runCatching {
-                supabase.from("applications").insert(
-                    ApplicationInsert(
-                        jobId = jobId,
-                        studentId = studentId,
-                        status = ApplicationStatus.PENDING.name,
-                        appliedAt = appliedAt,
-                        aiMatchPercent = ai?.matchPercent,
-                        aiSuggestedStatus = ai?.suggestedStatus,
-                        aiReason = ai?.reason,
-                    ),
-                )
-            }.onFailure { Log.e(TAG, "Apply failed", it) }.isSuccess
+            val outcome = AiClient.assessAndApply(jobId)
             refresh()
-            ok
+            // A DUPLICATE the local cache had not seen yet is still not a new
+            // application, so it reports false exactly like the check above.
+            outcome == AiClient.ApplyOutcome.CREATED
         }
-
-    // Cache-first lookup with a single-row fetch as fallback, so a slow
-    // jobs list can never silently disable the advisor.
-    private suspend fun findJobForAdvisor(jobId: String): Job? =
-        JobRepository.jobs.value.find { it.id == jobId } ?: runCatching {
-            supabase.from("jobs").select {
-                filter { eq("id", jobId) }
-            }.decodeSingleOrNull<JobRow>()?.toDomain()
-        }.onFailure { Log.e(TAG, "Advisor job fetch failed", it) }.getOrNull()
 
     // --- CRUD: Update (employer decides). ---
     suspend fun updateStatus(appId: String, status: ApplicationStatus) {

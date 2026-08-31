@@ -7,8 +7,10 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
-// Read secrets from local.properties (never committed to git).
-// SUPABASE_URL=... / SUPABASE_ANON_KEY=... / GEMINI_API_KEY=...
+// Read config from local.properties (never committed to git). See
+// local.properties.example. Only the Supabase URL + anon key live here now:
+// the Groq key moved to the :advisor Ktor server, because anything
+// baked into an APK can be read straight back out of it.
 val localProps = Properties().apply {
     val file = rootProject.file("local.properties")
     if (file.exists()) file.inputStream().use { load(it) }
@@ -34,7 +36,14 @@ android {
         // Exposed to code as BuildConfig.SUPABASE_URL etc.
         buildConfigField("String", "SUPABASE_URL", "\"${localProps.getProperty("SUPABASE_URL", "")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${localProps.getProperty("SUPABASE_ANON_KEY", "")}\"")
-        buildConfigField("String", "GROQ_API_KEY", "\"${localProps.getProperty("GROQ_API_KEY", "")}\"")
+        // Base URL of the :advisor Ktor server. Not a secret - it is just an
+        // address, and the server authenticates every call with the caller's
+        // Supabase JWT. On the emulator the host machine is 10.0.2.2.
+        buildConfigField(
+            "String",
+            "ADVISOR_BASE_URL",
+            "\"${localProps.getProperty("ADVISOR_BASE_URL", "http://10.0.2.2:8080")}\"",
+        )
     }
 
     buildTypes {
@@ -51,6 +60,16 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true // needed for buildConfigField above
+    }
+}
+
+kotlin {
+    compilerOptions {
+        // Application.appliedAt is a kotlin.time.Instant, still @ExperimentalTime
+        // in Kotlin 2.2.x. The opt-in is module-wide because the requirement
+        // spreads to every call site that merely compares two timestamps
+        // (the sortedByDescending in each list ViewModel).
+        optIn.add("kotlin.time.ExperimentalTime")
     }
 }
 
@@ -85,3 +104,4 @@ dependencies {
     implementation(libs.supabase.realtime)
     implementation(libs.ktor.client.cio)
 }
+

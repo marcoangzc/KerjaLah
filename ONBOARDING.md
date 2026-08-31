@@ -145,8 +145,21 @@ cd KerjaLah
 ```properties
 SUPABASE_URL=https://你的项目ID.supabase.co
 SUPABASE_ANON_KEY=你的anon开头的长字符串
-GROQ_API_KEY=gsk_你的groq密钥
 ```
+
+还要加一行（服务端地址，不是密钥）：
+
+```properties
+ADVISOR_BASE_URL=http://10.0.2.2:8080
+```
+
+> ⚠️ **本文档下面几章讲的"`AiClient.kt` 直接调 Groq"已经过时。**
+> Groq key **不再**写进 `local.properties`：编译进 APK 的东西都能被反编译出来。
+> 现在 AI 顾问是一个独立的 Kotlin 服务（`advisor/` 模块，Ktor 写的），
+> key 作为环境变量设在那台服务器上，见 `advisor/README.md`。
+> `AiClient.kt` 还在，但它现在只负责"带着登录 token 去请求 advisor"，
+> Prompt 组装、JSON 解析、超时兜底都搬到了 `advisor/GroqAdvisor.kt`——
+> 那些概念完全适用，而且照样是 Kotlin，只是跑在服务端。
 
 三个要点：
 

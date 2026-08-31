@@ -1,7 +1,7 @@
 package com.kerjalah.app.ui.user
 
-import com.kerjalah.app.data.data.User
-import com.kerjalah.app.data.data.UserRole
+import com.kerjalah.app.data.User
+import com.kerjalah.app.data.UserRole
 
 // [B] UI model for the profile screens. Ready-to-show text only.
 data class ProfileUi(

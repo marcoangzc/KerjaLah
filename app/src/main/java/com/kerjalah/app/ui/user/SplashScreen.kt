@@ -19,7 +19,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.kerjalah.app.data.data.UserRole
+import com.kerjalah.app.data.UserRole
 
 // [B] Module 1 - Splash screen (UI Layer, UDF).
 // When state says "ready", it fires ONE navigation event upward.
