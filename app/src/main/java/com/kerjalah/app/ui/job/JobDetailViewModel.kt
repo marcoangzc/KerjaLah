@@ -3,8 +3,9 @@ package com.kerjalah.app.ui.job
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kerjalah.app.data.ApplicationRepository
-import com.kerjalah.app.data.CurrentUser
 import com.kerjalah.app.data.JobRepository
+import com.kerjalah.app.data.UserRepository
+import com.kerjalah.app.data.UserRole
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,24 +21,34 @@ class JobDetailViewModel(private val jobId: String) : ViewModel() {
     private val _uiState = MutableStateFlow(JobDetailUiState())
     val uiState: StateFlow<JobDetailUiState> = _uiState.asStateFlow()
 
-    // Separate flow so a combine emission can't wipe the in-flight flag.
+    // Separate flows so a combine emission can't wipe them.
     private val _isApplying = MutableStateFlow(false)
+    private val _error = MutableStateFlow<String?>(null)
 
     init {
         viewModelScope.launch {
+            // currentUser is part of the combine on purpose. Reading the id
+            // once inside the block used the CurrentUser fallback id whenever
+            // the profile had not loaded yet, and nothing recomputed the flag
+            // when it finally arrived - so an existing application could show
+            // as "not applied" until something else changed.
             combine(
                 JobRepository.getJobById(jobId),
                 ApplicationRepository.applications,
+                UserRepository.currentUser,
                 _isApplying,
-            ) { job, applications, applying ->
+                _error,
+            ) { job, applications, user, applying, error ->
+                val studentId = user?.takeIf { it.role == UserRole.STUDENT }?.id
                 JobDetailUiState(
                     job = job?.toUi(),
                     isLoading = false,
                     notFound = job == null,
-                    isApplied = applications.any {
-                        it.jobId == jobId && it.studentId == CurrentUser.STUDENT_ID
+                    isApplied = studentId != null && applications.any {
+                        it.jobId == jobId && it.studentId == studentId
                     },
                     isApplying = applying,
+                    errorMessage = error,
                 )
             }.collect { _uiState.value = it }
         }
@@ -48,9 +59,30 @@ class JobDetailViewModel(private val jobId: String) : ViewModel() {
     // apply() is NonCancellable so leaving this screen cannot lose it.
     fun onApplyClick() {
         if (_isApplying.value) return // ignore double taps
+
+        // Never apply as the placeholder id: the row would be rejected by RLS
+        // (student_id must equal auth.uid()) and the failure would look like
+        // the button simply doing nothing.
+        val studentId = UserRepository.currentUser.value
+            ?.takeIf { it.role == UserRole.STUDENT }
+            ?.id
+        if (studentId == null) {
+            _error.value = "Log in as a student to apply for this job."
+            return
+        }
+
         viewModelScope.launch {
             _isApplying.value = true
-            ApplicationRepository.apply(jobId, CurrentUser.STUDENT_ID)
+            _error.value = null
+            val result = ApplicationRepository.apply(jobId, studentId)
+            // A duplicate is not an error - the row already exists, and the
+            // button flips to "Applied" from the applications stream.
+            _error.value = when (result) {
+                ApplicationRepository.ApplyResult.CREATED,
+                ApplicationRepository.ApplyResult.DUPLICATE -> null
+                ApplicationRepository.ApplyResult.FAILED ->
+                    "Could not send your application. Check your connection and try again."
+            }
             _isApplying.value = false
         }
     }

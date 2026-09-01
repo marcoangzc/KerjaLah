@@ -54,7 +54,12 @@ object ApplicationRepository {
     fun getById(appId: String): Flow<Application?> =
         applications.map { list -> list.find { it.id == appId } }
 
-    // --- CRUD: Create (Apply). False if already applied. ---
+    // Outcome of an apply attempt. A plain Boolean could not tell "you already
+    // applied" apart from "the write was rejected", so the screen showed the
+    // same silent nothing for both.
+    enum class ApplyResult { CREATED, DUPLICATE, FAILED }
+
+    // --- CRUD: Create (Apply). ---
     // The AI advisor runs BEFORE the insert because RLS lets students
     // INSERT their own rows but never UPDATE them - so the advice must
     // ride along with the insert payload. If the advisor fails or times
@@ -68,12 +73,13 @@ object ApplicationRepository {
     //    the student leaves the screen mid-wait (previously cancelling the
     //    ViewModel scope could lose the whole application).
     // 3. applied_at is no longer sent at all - the database stamps it.
-    suspend fun apply(jobId: String, studentId: String): Boolean =
+    suspend fun apply(jobId: String, studentId: String): ApplyResult =
         withContext(NonCancellable) {
             val duplicate = _applications.value.any {
                 it.jobId == jobId && it.studentId == studentId
             }
-            if (duplicate) return@withContext false // DB unique(job_id, student_id) also guards
+            // DB unique(job_id, student_id) also guards this.
+            if (duplicate) return@withContext ApplyResult.DUPLICATE
 
             val job = findJobForAdvisor(jobId)
             if (job == null) Log.w(TAG, "Advisor skipped: job $jobId not found")
@@ -98,9 +104,14 @@ object ApplicationRepository {
                         aiReason = ai?.reason,
                     ),
                 )
-            }.onFailure { Log.e(TAG, "Apply failed", it) }.isSuccess
+            }.onFailure {
+                // The most likely cause here is a database permission error on
+                // the ai_* columns - see supabase_migration_02.sql. Log the
+                // whole thing: the message names the exact column.
+                Log.e(TAG, "Apply failed", it)
+            }.isSuccess
             refresh()
-            ok
+            if (ok) ApplyResult.CREATED else ApplyResult.FAILED
         }
 
     // Cache-first lookup with a single-row fetch as fallback, so a slow

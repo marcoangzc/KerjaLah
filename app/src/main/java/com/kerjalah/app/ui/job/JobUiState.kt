@@ -14,4 +14,5 @@ data class JobDetailUiState(
     val notFound: Boolean = false, // true when job was deleted while viewing
     val isApplied: Boolean = false, // current student already applied (Module 3)
     val isApplying: Boolean = false, // apply + AI check in flight
+    val errorMessage: String? = null, // apply was rejected - say so, don't fail silently
 )
