@@ -24,6 +24,3 @@ dependencyResolutionManagement {
 
 rootProject.name = "KerjaLah"
 include(":app")
-// Kotlin/JVM server that holds the Groq key. Deployed separately from the
-// APK; :app never depends on it, it only talks to it over HTTP.
-include(":advisor")

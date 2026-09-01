@@ -120,8 +120,8 @@ alter table public.applications
 -- Column-level privileges only bite once the table-level grant is gone:
 -- Postgres does NOT subtract a column REVOKE from a table-level GRANT.
 -- After this, an `authenticated` client can only ever insert these 3 columns;
--- ai_* and applied_at are writable exclusively by the :advisor Ktor server
--- (service_role, which bypasses RLS and column grants).
+-- applied_at is writable exclusively server-side. NOTE: migration 02 later
+-- re-grants the three ai_* columns to the client; see that file for why.
 revoke insert on public.applications from authenticated;
 grant insert (job_id, student_id, status) on public.applications to authenticated;
 

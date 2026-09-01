@@ -26,12 +26,10 @@ jobs:
         run: |
           echo "SUPABASE_URL=https://ci.invalid" >> local.properties
           echo "SUPABASE_ANON_KEY=ci-placeholder" >> local.properties
+          echo "GROQ_API_KEY=ci-placeholder" >> local.properties
 
       - name: Assemble debug
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Build advisor server
-        run: ./gradlew :advisor:installDist --no-daemon
-
       - name: Unit tests
-        run: ./gradlew testDebugUnitTest :advisor:test --no-daemon
+        run: ./gradlew testDebugUnitTest --no-daemon

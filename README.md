@@ -33,7 +33,7 @@ applicant fits the job — while the final decision always stays with the human 
 ## 🔄 How It Works
 
 ```
- Student taps Apply ──▶ AI Advisor (Groq · Llama 3.3) scores the match (~12 s budget)
+ Student taps Apply ──▶ AI Advisor (Groq) scores the match (~12 s budget)
                           │
                           ▼
               Supabase INSERT (status = PENDING, advice rides along:
@@ -51,8 +51,10 @@ applicant fits the job — while the final decision always stays with the human 
 
 *The advisor never gates the application: any failure or time-out simply inserts
 the row without advice. RLS lets students INSERT but not UPDATE, so the advice
-must ride along with the insert itself. The apply flow is also `NonCancellable`
-— leaving the screen while the advisor runs can never lose the application.*
+must ride along with the insert itself, and a trigger then freezes the `ai_*`
+columns so nobody can rewrite the verdict afterwards. The apply flow is also
+`NonCancellable` — leaving the screen while the advisor runs can never lose the
+application.*
 
 ---
 
@@ -66,7 +68,7 @@ must ride along with the insert itself. The apply flow is also `NonCancellable`
 | Backend      | Supabase (Auth · PostgREST · Realtime) |
 | Networking   | Ktor client (CIO engine) |
 | Serialization| kotlinx.serialization |
-| AI           | Groq API (`Qwen 3.8 26b`), OpenAI-compatible REST |
+| AI           | Groq API (`Qwen 3.8`), OpenAI-compatible REST |
 | Navigation   | Navigation Compose (all routes centralized in `Routes.kt`) |
 
 ---
@@ -95,15 +97,10 @@ app/src/main/java/com/kerjalah/app/
 │   ├── employer/        # Employer: postings, applicants, AI card
 │   └── theme/           # Material 3 theme
 └── MainActivity.kt
-advisor/                     # Kotlin/JVM Ktor server: the AI Advisor
-└── src/main/kotlin/com/kerjalah/advisor/   # holds the Groq key, writes ai_*
 supabase_schema.sql          # Run once in Supabase SQL Editor
-supabase_migration_01.sql    # Then run this one
+supabase_migration_01.sql    # Then this one
+supabase_migration_02.sql    # Then this one
 ```
-
-Both modules are Kotlin: `:app` is the Android client, `:advisor` is a plain
-Kotlin/JVM server deployed separately. The app never depends on the server at
-build time — they only talk over HTTP.
 
 ---
 
@@ -121,32 +118,22 @@ cd KerjaLah
 ```
 
 ### 2 · Set up the database
-Supabase Dashboard → **SQL Editor** → run these two, in order:
+Supabase Dashboard → **SQL Editor** → run these three, in order:
 1. `supabase_schema.sql` — creates the `profiles`, `jobs` and `applications` tables.
 2. `supabase_migration_01.sql` — RLS hardening, constraints, indexes and the sign-up trigger.
+3. `supabase_migration_02.sql` — re-grants the client the three `ai_*` columns.
 
-### 3 · Run the AI Advisor
-The advisor is a Kotlin Ktor server, so the Groq key never ships in the APK.
-Set its environment variables (see [`advisor/README.md`](advisor/README.md)), then:
-
-```bash
-./gradlew :advisor:run
-```
-
-### 4 · Configure the app
+### 3 · Configure the app
 Copy `local.properties.example` to `local.properties` and fill it in.
 ⚠️ This file is git-ignored — **never commit your keys**.
 
 ```properties
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your-anon-key
-ADVISOR_BASE_URL=http://10.0.2.2:8080
+GROQ_API_KEY=gsk_your-groq-key
 ```
 
-There is no `GROQ_API_KEY` here any more: anything compiled into an APK can be
-extracted straight back out of it. It belongs to the advisor server only.
-
-### 5 · Run
+### 4 · Run
 Open the project in Android Studio → **Sync Gradle** → press **Run ▶** on an emulator or device (minSdk 24).
 
 ---
@@ -162,8 +149,13 @@ Open the project in Android Studio → **Sync Gradle** → press **Run ▶** on 
 
 ## 🔐 Security & Principles
 
-- **Secrets safety** — all keys live only in `local.properties`, injected via `BuildConfig`.
-- **Row-Level Security** — Supabase RLS keeps every role in its own lane.
+- **Row-Level Security** — you can read only your own profile; an employer additionally
+  reads a student's profile only while that student has an application on one of their
+  jobs. Enforced by Postgres, so bypassing the app gains nothing.
+- **Server-generated timestamps** — `applied_at` defaults to `now()` and is immutable,
+  so a device with a skewed clock cannot backdate an application.
+- **Known limitation** — `GROQ_API_KEY` is compiled into the APK and is therefore
+  extractable, so the AI match score is a hint for the employer, not evidence.
 - **Human-in-the-loop** — the AI advises; only the employer can accept or reject.
 - **SDG 8** — decent work & economic growth, enforced at RM 8.72 / hour.
 

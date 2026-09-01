@@ -7,10 +7,14 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
-// Read config from local.properties (never committed to git). See
-// local.properties.example. Only the Supabase URL + anon key live here now:
-// the Groq key moved to the :advisor Ktor server, because anything
-// baked into an APK can be read straight back out of it.
+// Read secrets from local.properties (never committed to git). See
+// local.properties.example.
+//
+// Caveat worth knowing: buildConfigField compiles these values into the APK as
+// plain string constants, so anyone who decompiles it can read them. That is
+// fine for SUPABASE_ANON_KEY, which is designed to be public and is policed by
+// Row Level Security - but GROQ_API_KEY is a real secret and is only here
+// because the app calls Groq directly. See the note on AiClient.
 val localProps = Properties().apply {
     val file = rootProject.file("local.properties")
     if (file.exists()) file.inputStream().use { load(it) }
@@ -36,14 +40,7 @@ android {
         // Exposed to code as BuildConfig.SUPABASE_URL etc.
         buildConfigField("String", "SUPABASE_URL", "\"${localProps.getProperty("SUPABASE_URL", "")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${localProps.getProperty("SUPABASE_ANON_KEY", "")}\"")
-        // Base URL of the :advisor Ktor server. Not a secret - it is just an
-        // address, and the server authenticates every call with the caller's
-        // Supabase JWT. On the emulator the host machine is 10.0.2.2.
-        buildConfigField(
-            "String",
-            "ADVISOR_BASE_URL",
-            "\"${localProps.getProperty("ADVISOR_BASE_URL", "http://10.0.2.2:8080")}\"",
-        )
+        buildConfigField("String", "GROQ_API_KEY", "\"${localProps.getProperty("GROQ_API_KEY", "")}\"")
     }
 
     buildTypes {
@@ -60,6 +57,13 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true // needed for buildConfigField above
+    }
+    testOptions {
+        unitTests {
+            // android.util.Log is a stub in unit tests and throws by default.
+            // AiClient logs while parsing, so let those calls no-op instead.
+            isReturnDefaultValues = true
+        }
     }
 }
 

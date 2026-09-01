@@ -155,7 +155,7 @@ object UserRepository {
     }
 
     // --- Delete account. Client-side we remove the profile + sign out.
-    // Deleting the auth user itself needs a service key (the :advisor server) -
+    // Deleting the auth user itself needs a service key (server-side) -
     // out of scope; be ready to explain this trade-off to the tutor. ---
     suspend fun deleteAccount() {
         val current = _currentUser.value ?: return
