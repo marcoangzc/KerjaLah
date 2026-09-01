@@ -16,3 +16,7 @@ captures/
 # Misc
 .DS_Store
 *.log
+
+# Build outputs - never commit APKs, they bloat the repo and go stale
+*.apk
+KerjaLah-source.zip
