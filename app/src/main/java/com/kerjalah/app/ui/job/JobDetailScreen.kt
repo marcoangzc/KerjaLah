@@ -166,6 +166,16 @@ fun JobDetailScreen(
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         Spacer(modifier = Modifier.height(24.dp))
+                        // A rejected apply used to look exactly like a button
+                        // that did nothing. Now it says so.
+                        uiState.errorMessage?.let { message ->
+                            Text(
+                                text = message,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
                         // Button state comes straight from UiState:
                         // applying -> busy label; applied -> disabled.
                         Button(
