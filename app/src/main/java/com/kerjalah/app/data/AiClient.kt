@@ -73,6 +73,19 @@ object AiClient {
     // every caller inherits the same guarantee.
     private const val BUDGET_MS = 12_000L
 
+    // Groq's free tier caps OUTPUT tokens per minute (OTPM) at 1000 for this
+    // model, and it reserves budget up front from the reply length a request
+    // could produce - not from what it actually produces. With no max_tokens
+    // that reservation is huge, so two or three applications in the same
+    // minute exhausted the whole quota and every later call came back 429
+    // ("Request too large ... reduce max_tokens"), filing applications with no
+    // advice attached.
+    //
+    // The verdict is one small JSON object; measured replies run 40-52 tokens.
+    // 200 leaves a wide margin for a longer reason string while cutting the
+    // per-call reservation enough for roughly five applications a minute.
+    private const val MAX_OUTPUT_TOKENS = 200
+
     // Reuse the Ktor engine supabase-kt already brought in.
     private val http = HttpClient(CIO)
     private val json = Json { ignoreUnknownKeys = true }
@@ -120,6 +133,7 @@ object AiClient {
         val body = buildJsonObject {
             put("model", MODEL)
             put("temperature", 0.2)
+            put("max_tokens", MAX_OUTPUT_TOKENS)
             putJsonObject("response_format") { put("type", "json_object") }
             putJsonArray("messages") {
                 addJsonObject {
