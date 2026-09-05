@@ -6,6 +6,8 @@ import com.kerjalah.app.data.CurrentUser
 import com.kerjalah.app.data.FairWage
 import com.kerjalah.app.data.Job
 import com.kerjalah.app.data.JobRepository
+import com.kerjalah.app.data.Outcome
+import com.kerjalah.app.ui.common.asRetryableMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,17 +42,19 @@ class PostJobViewModel(private val jobId: String?) : ViewModel() {
     }
 
     // --- Events UP from the UI (one function per field, UDF style) ---
+    // Each one clears only its own field error: fixing the pay box must not
+    // erase the complaint about an empty title before it has been read.
 
     fun onTitleChange(value: String) {
-        _uiState.value = _uiState.value.copy(title = value, errorMessage = null)
+        _uiState.value = _uiState.value.copy(title = value, titleError = null)
     }
 
     fun onCompanyChange(value: String) {
-        _uiState.value = _uiState.value.copy(companyName = value, errorMessage = null)
+        _uiState.value = _uiState.value.copy(companyName = value, companyError = null)
     }
 
     fun onLocationChange(value: String) {
-        _uiState.value = _uiState.value.copy(location = value, errorMessage = null)
+        _uiState.value = _uiState.value.copy(location = value, locationError = null)
     }
 
     fun onPayChange(value: String) {
@@ -59,41 +63,56 @@ class PostJobViewModel(private val jobId: String?) : ViewModel() {
         _uiState.value = _uiState.value.copy(
             payText = value,
             fairWageOk = pay?.let { FairWage.isFair(it) },
-            errorMessage = null,
+            payError = null,
         )
     }
 
     fun onHoursChange(value: String) {
-        _uiState.value = _uiState.value.copy(hoursText = value, errorMessage = null)
+        _uiState.value = _uiState.value.copy(hoursText = value, hoursError = null)
     }
 
     fun onDescriptionChange(value: String) {
-        _uiState.value = _uiState.value.copy(description = value, errorMessage = null)
+        _uiState.value = _uiState.value.copy(description = value, descriptionError = null)
     }
+
+    fun onMessageShown() {
+        _uiState.value = _uiState.value.copy(message = null)
+    }
+
+    fun onRetry() = onSaveClick()
 
     fun onSaveClick() {
         val state = _uiState.value
+        if (state.isSaving) return // ignore double taps
 
-        // Basic validation first.
-        if (state.title.isBlank() || state.companyName.isBlank() ||
-            state.location.isBlank() || state.description.isBlank()
-        ) {
-            _uiState.value = state.copy(errorMessage = "Please fill in all fields.")
-            return
-        }
         val pay = state.payText.toDoubleOrNull()
         val hours = state.hoursText.toIntOrNull()
-        if (pay == null || hours == null || pay <= 0 || hours <= 0) {
-            _uiState.value = state.copy(errorMessage = "Pay and hours must be valid numbers.")
-            return
-        }
 
-        // Fair-Wage Check gate: a posting below minimum wage can NOT go live.
-        if (!FairWage.isFair(pay)) {
-            _uiState.value = state.copy(
-                errorMessage = "Fair-Wage Check failed: pay must be at least " +
-                    "RM %.2f / hour (Malaysia minimum wage).".format(FairWage.MIN_HOURLY_RM),
-            )
+        // Everything wrong with the form, reported at once and per field.
+        val validated = state.copy(
+            titleError = if (state.title.isBlank()) "Give the job a title." else null,
+            companyError = if (state.companyName.isBlank()) "Name the company." else null,
+            locationError = if (state.location.isBlank()) "Say where the work is." else null,
+            descriptionError =
+                if (state.description.isBlank()) "Describe the work briefly." else null,
+            payError = payProblem(pay),
+            hoursError = if (hours == null || hours <= 0) {
+                "Enter whole hours, e.g. 12."
+            } else {
+                null
+            },
+        )
+        val hasFieldError = listOf(
+            validated.titleError,
+            validated.companyError,
+            validated.locationError,
+            validated.descriptionError,
+            validated.payError,
+            validated.hoursError,
+        ).any { it != null }
+
+        if (hasFieldError || pay == null || hours == null) {
+            _uiState.value = validated
             return
         }
 
@@ -107,11 +126,33 @@ class PostJobViewModel(private val jobId: String?) : ViewModel() {
             hoursPerWeek = hours,
             description = state.description.trim(),
         )
+        _uiState.value = validated.copy(isSaving = true, message = null)
         // Supabase calls are suspend -> run in the ViewModel's scope.
         viewModelScope.launch {
-            if (jobId == null) JobRepository.addJob(job) else JobRepository.updateJob(job)
-            // Screen watches isSaved and navigates back (event, not direct nav).
-            _uiState.value = _uiState.value.copy(isSaved = true)
+            val result = if (jobId == null) {
+                JobRepository.addJob(job)
+            } else {
+                JobRepository.updateJob(job)
+            }
+            // isSaved used to flip whatever the repository did, so a rejected
+            // write still bounced the employer back to a list without the job.
+            _uiState.value = when (result) {
+                is Outcome.Success -> _uiState.value.copy(isSaving = false, isSaved = true)
+                is Outcome.Failure -> _uiState.value.copy(
+                    isSaving = false,
+                    message = result.error.asRetryableMessage(),
+                )
+            }
         }
+    }
+
+    // The Fair-Wage Check gate: a posting below minimum wage can NOT go live.
+    // It is a fact about the pay field, so it is reported on the pay field.
+    private fun payProblem(pay: Double?): String? = when {
+        pay == null || pay <= 0 -> "Enter the hourly pay, e.g. 10.50."
+        !FairWage.isFair(pay) ->
+            "Fair-Wage Check: pay at least RM %.2f / hour (Malaysia minimum wage)."
+                .format(FairWage.MIN_HOURLY_RM)
+        else -> null
     }
 }

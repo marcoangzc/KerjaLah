@@ -11,6 +11,7 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -27,6 +28,22 @@ data class AiAssessment(
     val suggestedStatus: AiSuggestedStatus,
     val reason: String,
 )
+
+// [B] What one advisor call came back with.
+//
+// This used to be a plain `AiAssessment?`, which made "Groq is down",
+// "our API key is rejected" and "the model answered with nonsense" all the
+// same value: null. A screen given null can only hide the card. A screen given
+// Unavailable can say what happened and offer Retry - which is the whole
+// point of degrading gracefully instead of disappearing.
+sealed interface AiOutcome {
+    data class Advice(val assessment: AiAssessment) : AiOutcome
+
+    /** No verdict this time. [error] is already a sentence for a person. */
+    data class Unavailable(val error: AppError) : AiOutcome
+}
+
+fun AiOutcome.adviceOrNull(): AiAssessment? = (this as? AiOutcome.Advice)?.assessment
 
 // [B] Module 3 (AI phase) - the Groq client.
 // Called ONCE per application, in the background, when a student applies.
@@ -50,6 +67,11 @@ object AiClient {
     // and shrinks the surface for prompt-injection payloads.
     private const val MAX_FIELD_CHARS = 500
     private const val MAX_REASON_CHARS = 300
+
+    // How long a student waits for advice before we give up and file the
+    // application without it. Owned here rather than by the repository, so
+    // every caller inherits the same guarantee.
+    private const val BUDGET_MS = 12_000L
 
     // Reuse the Ktor engine supabase-kt already brought in.
     private val http = HttpClient(CIO)
@@ -76,7 +98,25 @@ object AiClient {
         employer makes the hiring decision.
     """.trimIndent()
 
-    suspend fun assessApplication(job: Job, student: User): AiAssessment? = runCatching {
+    // The advisor owns its own time budget and its own failures. It cannot
+    // throw and it cannot hang: whatever goes wrong, the caller gets an
+    // AiOutcome back within BUDGET_MS and applying is never blocked.
+    suspend fun assessApplication(job: Job, student: User): AiOutcome {
+        val outcome = withTimeoutOrNull(BUDGET_MS) {
+            resultOf { request(job, student) }.getOrElse {
+                AiOutcome.Unavailable(it.logged(TAG, "Groq call failed"))
+            }
+        }
+        if (outcome == null) Log.w(TAG, "Advisor gave up after ${BUDGET_MS}ms")
+        return outcome ?: AiOutcome.Unavailable(AppError.Timeout)
+    }
+
+    private suspend fun request(job: Job, student: User): AiOutcome {
+        if (BuildConfig.GROQ_API_KEY.isBlank()) {
+            Log.w(TAG, "GROQ_API_KEY is empty - see local.properties.example")
+            return AiOutcome.Unavailable(AppError.ServiceUnavailable)
+        }
+
         val body = buildJsonObject {
             put("model", MODEL)
             put("temperature", 0.2)
@@ -99,17 +139,33 @@ object AiClient {
             setBody(body.toString())
         }
         val raw = response.bodyAsText()
-        if (!response.status.isSuccess()) error("Groq HTTP ${response.status}: $raw")
+        if (!response.status.isSuccess()) {
+            // The body can carry quota details and key hints. It goes to
+            // Logcat, truncated, and never to a screen.
+            Log.e(TAG, "Groq returned ${response.status}: ${truncate(raw, 300)}")
+            return AiOutcome.Unavailable(
+                when (response.status.value) {
+                    429 -> AppError.RateLimited
+                    // 401/403 means OUR key is wrong. That is not something the
+                    // employer can fix, so do not phrase it as their problem.
+                    else -> AppError.ServiceUnavailable
+                },
+            )
+        }
 
         val content = json.parseToJsonElement(raw)
             .jsonObject.getValue("choices").jsonArray[0]
             .jsonObject.getValue("message")
             .jsonObject.getValue("content").jsonPrimitive.content
 
-        parseAssessment(content).also {
-            Log.i(TAG, if (it != null) "Advisor OK: ${it.matchPercent}%" else "Advisor gave no usable verdict")
+        val assessment = parseAssessment(content)
+        if (assessment == null) {
+            Log.w(TAG, "Advisor replied, but the verdict was not usable")
+            return AiOutcome.Unavailable(AppError.ServiceUnavailable)
         }
-    }.onFailure { Log.e(TAG, "Groq call failed", it) }.getOrNull()
+        Log.i(TAG, "Advisor OK: ${assessment.matchPercent}%")
+        return AiOutcome.Advice(assessment)
+    }
 
     // Note there is no student name here: the model does not need it to score
     // fit, and leaving it out keeps a real person's name out of a third-party
@@ -132,7 +188,7 @@ object AiClient {
     // Never trust the model's shape: all three columns have CHECK constraints
     // and a violation would fail the whole application insert.
     internal fun parseAssessment(rawContent: String): AiAssessment? {
-        val obj = runCatching {
+        val obj = resultOf {
             json.parseToJsonElement(extractJsonObject(rawContent)).jsonObject
         }.getOrNull() ?: return null
 

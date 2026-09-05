@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -26,20 +27,29 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.kerjalah.app.data.FairWage
+import com.kerjalah.app.ui.common.SnackbarMessageEffect
 
 // [A] Module 2 - Post / Edit Job screen (UI Layer, UDF).
 // Every keystroke goes UP to the ViewModel (onXxxChange),
 // new state flows DOWN and re-renders the fields.
+//
+// Validation renders per field (isError + supportingText). Only a failed
+// SAVE - the part that can fail for reasons outside this form - gets a
+// snackbar, with Retry.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PostJobScreen(
@@ -51,6 +61,7 @@ fun PostJobScreen(
     onSaved: () -> Unit,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     // React to "saved" state with a side effect -> navigate back.
     // Why LaunchedEffect: navigation is an event, not part of rendering.
@@ -58,7 +69,15 @@ fun PostJobScreen(
         if (uiState.isSaved) onSaved()
     }
 
+    SnackbarMessageEffect(
+        message = uiState.message,
+        hostState = snackbarHostState,
+        onShown = { viewModel.onMessageShown() },
+        onAction = { viewModel.onRetry() },
+    )
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             CenterAlignedTopAppBar(
                 title = { Text(if (uiState.isEditMode) "Edit Job" else "Post a Job") },
@@ -91,6 +110,8 @@ fun PostJobScreen(
                     onValueChange = { viewModel.onTitleChange(it) },
                     label = { Text("Job title") },
                     singleLine = true,
+                    isError = uiState.titleError != null,
+                    supportingText = uiState.titleError?.let { { Text(it) } },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -99,6 +120,8 @@ fun PostJobScreen(
                     onValueChange = { viewModel.onCompanyChange(it) },
                     label = { Text("Company name") },
                     singleLine = true,
+                    isError = uiState.companyError != null,
+                    supportingText = uiState.companyError?.let { { Text(it) } },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -107,6 +130,8 @@ fun PostJobScreen(
                     onValueChange = { viewModel.onLocationChange(it) },
                     label = { Text("Location (near which campus?)") },
                     singleLine = true,
+                    isError = uiState.locationError != null,
+                    supportingText = uiState.locationError?.let { { Text(it) } },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -116,6 +141,11 @@ fun PostJobScreen(
                         onValueChange = { viewModel.onPayChange(it) },
                         label = { Text("Pay (RM / hour)") },
                         singleLine = true,
+                        // The Fair-Wage Check verdict is a fact about THIS
+                        // field, so it is reported on this field.
+                        isError = uiState.payError != null,
+                        supportingText = uiState.payError?.let { { Text(it) } },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         modifier = Modifier.weight(1f),
                     )
                     Spacer(modifier = Modifier.width(12.dp))
@@ -124,6 +154,9 @@ fun PostJobScreen(
                         onValueChange = { viewModel.onHoursChange(it) },
                         label = { Text("Hours / week") },
                         singleLine = true,
+                        isError = uiState.hoursError != null,
+                        supportingText = uiState.hoursError?.let { { Text(it) } },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -150,24 +183,24 @@ fun PostJobScreen(
                     onValueChange = { viewModel.onDescriptionChange(it) },
                     label = { Text("Job description") },
                     minLines = 4,
+                    isError = uiState.descriptionError != null,
+                    supportingText = uiState.descriptionError?.let { { Text(it) } },
                     modifier = Modifier.fillMaxWidth(),
                 )
-
-                uiState.errorMessage?.let { message ->
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = message,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
 
                 Spacer(modifier = Modifier.height(24.dp))
                 Button(
                     onClick = { viewModel.onSaveClick() },
+                    enabled = !uiState.isSaving,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(if (uiState.isEditMode) "Save Changes" else "Publish Job")
+                    Text(
+                        when {
+                            uiState.isSaving -> "Saving..."
+                            uiState.isEditMode -> "Save Changes"
+                            else -> "Publish Job"
+                        },
+                    )
                 }
             }
         }

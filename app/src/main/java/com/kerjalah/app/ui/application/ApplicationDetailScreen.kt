@@ -22,16 +22,20 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.kerjalah.app.ui.common.SnackbarMessageEffect
 
 // [B] Module 3 - Application Detail screen (student side, UDF).
 // Shows live status; withdraw is an event UP to the ViewModel.
@@ -45,13 +49,22 @@ fun ApplicationDetailScreen(
     onBackClick: () -> Unit,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     // Withdrawn (or deleted) -> leave this screen.
     LaunchedEffect(uiState.closed) {
         if (uiState.closed && !uiState.isLoading) onBackClick()
     }
 
+    SnackbarMessageEffect(
+        message = uiState.message,
+        hostState = snackbarHostState,
+        onShown = { viewModel.onMessageShown() },
+        onAction = { viewModel.onRetry() },
+    )
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             CenterAlignedTopAppBar(
                 title = { Text("Application Detail") },
@@ -139,10 +152,17 @@ fun ApplicationDetailScreen(
                         Spacer(modifier = Modifier.height(24.dp))
                         OutlinedButton(
                             onClick = { viewModel.onWithdrawClick() },
+                            enabled = !uiState.isWithdrawing,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
+                            // A withdraw that the database refused used to look
+                            // exactly like a button that did nothing at all.
                             Text(
-                                text = "Withdraw Application",
+                                text = if (uiState.isWithdrawing) {
+                                    "Withdrawing..."
+                                } else {
+                                    "Withdraw Application"
+                                },
                                 color = MaterialTheme.colorScheme.error,
                             )
                         }

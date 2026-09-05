@@ -6,6 +6,8 @@ import com.kerjalah.app.data.ApplicationRepository
 import com.kerjalah.app.data.JobRepository
 import com.kerjalah.app.data.UserRepository
 import com.kerjalah.app.data.UserRole
+import com.kerjalah.app.ui.common.UserMessage
+import com.kerjalah.app.ui.common.asRetryableMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,7 +25,7 @@ class JobDetailViewModel(private val jobId: String) : ViewModel() {
 
     // Separate flows so a combine emission can't wipe them.
     private val _isApplying = MutableStateFlow(false)
-    private val _error = MutableStateFlow<String?>(null)
+    private val _message = MutableStateFlow<UserMessage?>(null)
 
     init {
         viewModelScope.launch {
@@ -37,8 +39,8 @@ class JobDetailViewModel(private val jobId: String) : ViewModel() {
                 ApplicationRepository.applications,
                 UserRepository.currentUser,
                 _isApplying,
-                _error,
-            ) { job, applications, user, applying, error ->
+                _message,
+            ) { job, applications, user, applying, message ->
                 val studentId = user?.takeIf { it.role == UserRole.STUDENT }?.id
                 JobDetailUiState(
                     job = job?.toUi(),
@@ -48,7 +50,7 @@ class JobDetailViewModel(private val jobId: String) : ViewModel() {
                         it.jobId == jobId && it.studentId == studentId
                     },
                     isApplying = applying,
-                    errorMessage = error,
+                    message = message,
                 )
             }.collect { _uiState.value = it }
         }
@@ -57,6 +59,9 @@ class JobDetailViewModel(private val jobId: String) : ViewModel() {
     // Event from UI: apply for this job (Module 3).
     // Takes a few seconds: the AI advisor runs before the insert, and
     // apply() is NonCancellable so leaving this screen cannot lose it.
+    //
+    // A Groq outage never reaches this method: AiClient degrades to "no
+    // advice" on its own, and the application is filed either way.
     fun onApplyClick() {
         if (_isApplying.value) return // ignore double taps
 
@@ -67,23 +72,31 @@ class JobDetailViewModel(private val jobId: String) : ViewModel() {
             ?.takeIf { it.role == UserRole.STUDENT }
             ?.id
         if (studentId == null) {
-            _error.value = "Log in as a student to apply for this job."
+            _message.value = UserMessage("Log in as a student to apply for this job.")
             return
         }
 
         viewModelScope.launch {
             _isApplying.value = true
-            _error.value = null
+            _message.value = null
             val result = ApplicationRepository.apply(jobId, studentId)
             // A duplicate is not an error - the row already exists, and the
             // button flips to "Applied" from the applications stream.
-            _error.value = when (result) {
-                ApplicationRepository.ApplyResult.CREATED,
-                ApplicationRepository.ApplyResult.DUPLICATE -> null
-                ApplicationRepository.ApplyResult.FAILED ->
-                    "Could not send your application. Check your connection and try again."
+            _message.value = when (result) {
+                is ApplicationRepository.ApplyResult.Created,
+                is ApplicationRepository.ApplyResult.Duplicate,
+                -> null
+                is ApplicationRepository.ApplyResult.Failed ->
+                    result.error.asRetryableMessage()
             }
             _isApplying.value = false
         }
+    }
+
+    fun onRetry() = onApplyClick()
+
+    /** Snackbar dismissed or timed out - the notice does not outlive it. */
+    fun onMessageShown() {
+        _message.value = null
     }
 }

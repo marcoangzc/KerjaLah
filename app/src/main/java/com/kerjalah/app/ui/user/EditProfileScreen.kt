@@ -17,18 +17,21 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.kerjalah.app.ui.common.SnackbarMessageEffect
 
 // [B] Module 1 - Edit Profile screen (UI Layer, UDF). Shared by both roles;
 // the org field label comes from state ("University" / "Company").
@@ -40,12 +43,21 @@ fun EditProfileScreen(
     onSaved: () -> Unit,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(uiState.isSaved) {
         if (uiState.isSaved) onSaved()
     }
 
+    SnackbarMessageEffect(
+        message = uiState.message,
+        hostState = snackbarHostState,
+        onShown = { viewModel.onMessageShown() },
+        onAction = { viewModel.onRetry() },
+    )
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             CenterAlignedTopAppBar(
                 title = { Text("Edit Profile") },
@@ -79,6 +91,8 @@ fun EditProfileScreen(
                     onValueChange = { viewModel.onNameChange(it) },
                     label = { Text("Full name") },
                     singleLine = true,
+                    isError = uiState.nameError != null,
+                    supportingText = uiState.nameError?.let { { Text(it) } },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -98,21 +112,13 @@ fun EditProfileScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                uiState.errorMessage?.let { message ->
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = message,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-
                 Spacer(modifier = Modifier.height(24.dp))
                 Button(
                     onClick = { viewModel.onSaveClick() },
+                    enabled = !uiState.isSaving,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Save Changes")
+                    Text(if (uiState.isSaving) "Saving..." else "Save Changes")
                 }
             }
         }

@@ -16,8 +16,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 // [B] Module 1 - User repository, now backed by Supabase Auth + profiles.
-// Same public surface as the mock; only return types of login/register
-// got richer (role / error message) so screens can react properly.
+// Same public surface as the mock; login/register now return an Outcome so
+// screens learn WHY something failed without ever seeing the exception.
 // Passwords never touch our code or database - Supabase Auth owns them.
 object UserRepository {
 
@@ -71,17 +71,35 @@ object UserRepository {
         }
     }
 
-    // --- Login. Returns the role on success, null on bad credentials/offline. ---
-    suspend fun login(email: String, password: String): UserRole? = runCatching {
-        supabase.auth.signInWith(Email) {
-            this.email = email.trim()
-            this.password = password
+    // --- Login. Success carries the role; failure carries an AppError. ---
+    // This used to return UserRole?, so every cause - wrong password, no
+    // network, missing profile row - collapsed into null and the screen had to
+    // guess with one catch-all sentence. Now the screen is told which of them
+    // happened, and still never sees the exception.
+    suspend fun login(email: String, password: String): Outcome<UserRole> {
+        val signIn = resultOf {
+            supabase.auth.signInWith(Email) {
+                this.email = email.trim()
+                this.password = password
+            }
         }
-        val uid = supabase.auth.currentUserOrNull()?.id ?: return@runCatching null
-        val profile = fetchProfile(uid) ?: return@runCatching null
+        signIn.exceptionOrNull()?.let {
+            return Outcome.Failure(it.logged(TAG, "Login failed"))
+        }
+
+        val uid = supabase.auth.currentUserOrNull()?.id
+        if (uid == null) {
+            Log.w(TAG, "Sign-in reported success but no session was stored")
+            return Outcome.Failure(AppError.SessionExpired)
+        }
+        val profile = fetchProfile(uid)
+        if (profile == null) {
+            Log.w(TAG, "Signed in, but the profiles row for this account is missing")
+            return Outcome.Failure(AppError.ProfileNotReady)
+        }
         _currentUser.value = profile
-        profile.role
-    }.onFailure { Log.e(TAG, "Login failed", it) }.getOrNull()
+        return Outcome.Success(profile.role)
+    }
 
     // --- Register step 1: park the form data (validated by the ViewModel). ---
     fun setPendingRegistration(name: String, email: String, password: String) {
@@ -91,7 +109,13 @@ object UserRepository {
     }
 
     // --- Register step 2: create the auth user; the profile row follows. ---
-    // Returns null on success, or a user-readable error message.
+    // Returns Ok on success, or a Failure the screen can render as-is.
+    //
+    // The two "impossible" branches below used to be thrown as error("...")
+    // strings and then shown to the user verbatim - sentences like "Disable
+    // 'Confirm email' in Supabase Auth settings", which is an instruction for
+    // us, not for a student. That guidance now goes to Logcat, where we read
+    // it, and the user gets a sentence about their own situation.
     //
     // We no longer INSERT into profiles from here. Sign-up carries the role and
     // name as user metadata, and the on_auth_user_created trigger writes the
@@ -99,11 +123,12 @@ object UserRepository {
     // (see supabase_migration_01.sql). The old two-call version had no
     // transaction: a dropped connection between them left an auth account with
     // no profile, which could never log in and could not be retried.
-    suspend fun completeRegistration(role: UserRole): String? {
-        val name = pendingName ?: return "Registration info missing - please go back."
-        val email = pendingEmail ?: return "Registration info missing - please go back."
-        val password = pendingPassword ?: return "Registration info missing - please go back."
-        return runCatching {
+    suspend fun completeRegistration(role: UserRole): Outcome<Unit> {
+        val name = pendingName ?: return Outcome.Failure(AppError.RegistrationExpired)
+        val email = pendingEmail ?: return Outcome.Failure(AppError.RegistrationExpired)
+        val password = pendingPassword ?: return Outcome.Failure(AppError.RegistrationExpired)
+
+        val signUp = resultOf {
             supabase.auth.signUpWith(Email) {
                 this.email = email
                 this.password = password
@@ -115,24 +140,35 @@ object UserRepository {
                     put("name", name)
                 }
             }
-            // Needs a live session right after sign-up. If this fails:
-            // Supabase Dashboard -> Authentication -> disable "Confirm email".
-            val uid = supabase.auth.currentUserOrNull()?.id
-                ?: error("No session after sign-up. Disable 'Confirm email' in Supabase Auth settings.")
-            _currentUser.value = fetchProfile(uid)
-                ?: error("Profile was not created. Check the on_auth_user_created trigger.")
-            clearPending()
-            null // success
-        }.getOrElse { e ->
-            Log.e(TAG, "Registration failed", e)
-            e.message ?: "Registration failed. Check your connection."
         }
+        signUp.exceptionOrNull()?.let {
+            return Outcome.Failure(it.logged(TAG, "Sign-up failed"))
+        }
+
+        // Needs a live session right after sign-up. If this branch is taken:
+        // Supabase Dashboard -> Authentication -> disable "Confirm email".
+        val uid = supabase.auth.currentUserOrNull()?.id
+        if (uid == null) {
+            Log.w(TAG, "No session after sign-up - is \"Confirm email\" still enabled?")
+            return Outcome.Failure(AppError.EmailNotConfirmed)
+        }
+        val profile = fetchProfile(uid)
+        if (profile == null) {
+            Log.w(TAG, "Profile row was not created - check the on_auth_user_created trigger")
+            return Outcome.Failure(AppError.ProfileNotReady)
+        }
+
+        _currentUser.value = profile
+        clearPending()
+        return Ok
     }
 
     // --- Update profile of the logged-in user. ---
-    suspend fun updateProfile(name: String, organization: String, bio: String) {
-        val current = _currentUser.value ?: return
-        runCatching {
+    // A failed save used to be logged and then reported as success, so the
+    // screen navigated back and the edit had simply vanished.
+    suspend fun updateProfile(name: String, organization: String, bio: String): Outcome<Unit> {
+        val current = _currentUser.value ?: return Outcome.Failure(AppError.SessionExpired)
+        return resultOf {
             supabase.from("profiles").update({
                 set("name", name.trim())
                 set("organization", organization.trim())
@@ -140,31 +176,45 @@ object UserRepository {
             }) {
                 filter { eq("id", current.id) }
             }
-            _currentUser.value = current.copy(
-                name = name.trim(),
-                organization = organization.trim(),
-                bio = bio.trim(),
-            )
-        }.onFailure { Log.e(TAG, "Update profile failed", it) }
+        }.fold(
+            onSuccess = {
+                _currentUser.value = current.copy(
+                    name = name.trim(),
+                    organization = organization.trim(),
+                    bio = bio.trim(),
+                )
+                Ok
+            },
+            onFailure = { Outcome.Failure(it.logged(TAG, "Update profile failed")) },
+        )
     }
 
+    // Signing out locally always succeeds: the user asked to be signed out, so
+    // we drop the session even if the server call did not go through.
     suspend fun logout() {
-        runCatching { supabase.auth.signOut() }
-            .onFailure { Log.e(TAG, "Logout failed", it) }
+        resultOf { supabase.auth.signOut() }
+            .onFailure { Log.e(TAG, "Sign-out call failed; clearing the local session anyway", it) }
         _currentUser.value = null
     }
 
     // --- Delete account. Client-side we remove the profile + sign out.
     // Deleting the auth user itself needs a service key (server-side) -
     // out of scope; be ready to explain this trade-off to the tutor. ---
-    suspend fun deleteAccount() {
-        val current = _currentUser.value ?: return
-        runCatching {
+    suspend fun deleteAccount(): Outcome<Unit> {
+        val current = _currentUser.value ?: return Outcome.Failure(AppError.SessionExpired)
+        val deleted = resultOf {
             supabase.from("profiles").delete {
                 filter { eq("id", current.id) }
             }
-        }.onFailure { Log.e(TAG, "Delete profile failed", it) }
+        }
+        // Only sign out once the row is really gone. Signing out after a failed
+        // delete looked exactly like a successful deletion - until the same
+        // profile reappeared on the next login.
+        deleted.exceptionOrNull()?.let {
+            return Outcome.Failure(it.logged(TAG, "Delete profile failed"))
+        }
         logout()
+        return Ok
     }
 
     // Refresh the profile list used for Module 3 joins.
@@ -173,7 +223,7 @@ object UserRepository {
     // These rows carry no email: profiles.email is gone and auth.users is
     // readable only for yourself.
     suspend fun refreshUsers() {
-        runCatching {
+        resultOf {
             supabase.from("profiles").select().decodeList<ProfileRow>()
         }.onSuccess { rows ->
             _users.value = rows.map { it.toDomain() }
@@ -182,7 +232,7 @@ object UserRepository {
 
     // Your own profile, with the address taken from the session rather than
     // from a duplicated profiles.email column.
-    private suspend fun fetchProfile(uid: String): User? = runCatching {
+    private suspend fun fetchProfile(uid: String): User? = resultOf {
         val email = supabase.auth.currentUserOrNull()?.email.orEmpty()
         supabase.from("profiles").select {
             filter { eq("id", uid) }

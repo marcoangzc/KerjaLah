@@ -2,8 +2,10 @@ package com.kerjalah.app.ui.user
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kerjalah.app.data.Outcome
 import com.kerjalah.app.data.UserRepository
 import com.kerjalah.app.data.UserRole
+import com.kerjalah.app.ui.common.asRetryableMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,31 +31,49 @@ class EditProfileViewModel : ViewModel() {
     }
 
     fun onNameChange(value: String) {
-        _uiState.value = _uiState.value.copy(name = value, errorMessage = null)
+        _uiState.value = _uiState.value.copy(name = value, nameError = null)
     }
 
     fun onOrgChange(value: String) {
-        _uiState.value = _uiState.value.copy(orgValue = value, errorMessage = null)
+        _uiState.value = _uiState.value.copy(orgValue = value)
     }
 
     fun onBioChange(value: String) {
-        _uiState.value = _uiState.value.copy(bio = value, errorMessage = null)
+        _uiState.value = _uiState.value.copy(bio = value)
     }
+
+    fun onMessageShown() {
+        _uiState.value = _uiState.value.copy(message = null)
+    }
+
+    fun onRetry() = onSaveClick()
 
     fun onSaveClick() {
         val state = _uiState.value
+        if (state.isSaving) return
+
         if (state.name.isBlank()) {
-            _uiState.value = state.copy(errorMessage = "Name cannot be empty.")
+            _uiState.value = state.copy(nameError = "Name cannot be empty.")
             return
         }
-        // Supabase call is suspend -> run in the ViewModel's scope.
+
+        _uiState.value = state.copy(isSaving = true, nameError = null, message = null)
         viewModelScope.launch {
-            UserRepository.updateProfile(
+            // isSaved only flips when the write actually landed. It used to
+            // flip unconditionally, so a failed save still navigated back and
+            // the changes were quietly lost.
+            val result = UserRepository.updateProfile(
                 name = state.name,
                 organization = state.orgValue,
                 bio = state.bio,
             )
-            _uiState.value = state.copy(isSaved = true)
+            _uiState.value = when (result) {
+                is Outcome.Success -> _uiState.value.copy(isSaving = false, isSaved = true)
+                is Outcome.Failure -> _uiState.value.copy(
+                    isSaving = false,
+                    message = result.error.asRetryableMessage(),
+                )
+            }
         }
     }
 }
