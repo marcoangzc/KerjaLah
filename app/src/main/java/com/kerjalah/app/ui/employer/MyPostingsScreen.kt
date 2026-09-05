@@ -23,14 +23,18 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.kerjalah.app.ui.common.SnackbarMessageEffect
 import com.kerjalah.app.ui.job.JobCard
 
 // [A] Module 2 - My Postings screen (employer side, UDF).
@@ -44,8 +48,19 @@ fun MyPostingsScreen(
     onApplicantsClick: (String) -> Unit, // navigate to employer/applicants/{jobId}
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // Deleting a posting is one tap with no confirmation, so a silent failure
+    // was indistinguishable from a successful delete that had not refreshed.
+    SnackbarMessageEffect(
+        message = uiState.message,
+        hostState = snackbarHostState,
+        onShown = { viewModel.onMessageShown() },
+        onAction = { viewModel.onRetry() },
+    )
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             CenterAlignedTopAppBar(title = { Text("My Postings") })
         },

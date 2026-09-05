@@ -18,7 +18,6 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -35,6 +34,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 
 // [B] Module 1 - Register screen, step 1 of 2 (UI Layer, UDF).
 // On success the state flips readyForRole -> navigate to Role screen.
+//
+// All four checks are field-local, so all four render as supportingText on the
+// box they are about. The old single red paragraph under the form said
+// "Passwords do not match" a long way from either password box.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RegisterScreen(
@@ -85,6 +88,8 @@ fun RegisterScreen(
                     onValueChange = { viewModel.onNameChange(it) },
                     label = { Text("Full name") },
                     singleLine = true,
+                    isError = uiState.nameError != null,
+                    supportingText = uiState.nameError?.let { { Text(it) } },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -93,6 +98,8 @@ fun RegisterScreen(
                     onValueChange = { viewModel.onEmailChange(it) },
                     label = { Text("Email") },
                     singleLine = true,
+                    isError = uiState.emailError != null,
+                    supportingText = uiState.emailError?.let { { Text(it) } },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -100,8 +107,13 @@ fun RegisterScreen(
                 OutlinedTextField(
                     value = uiState.password,
                     onValueChange = { viewModel.onPasswordChange(it) },
-                    label = { Text("Password (min 6 characters)") },
+                    label = { Text("Password") },
                     singleLine = true,
+                    isError = uiState.passwordError != null,
+                    // Doubles as the rule ("at least 6 characters") until the
+                    // rule is broken, then as the complaint. One line, one
+                    // place to look - no popup, no toast.
+                    supportingText = { Text(uiState.passwordError ?: "At least 6 characters.") },
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     modifier = Modifier.fillMaxWidth(),
@@ -112,19 +124,12 @@ fun RegisterScreen(
                     onValueChange = { viewModel.onConfirmPasswordChange(it) },
                     label = { Text("Confirm password") },
                     singleLine = true,
+                    isError = uiState.confirmPasswordError != null,
+                    supportingText = uiState.confirmPasswordError?.let { { Text(it) } },
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     modifier = Modifier.fillMaxWidth(),
                 )
-
-                uiState.errorMessage?.let { message ->
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = message,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
 
                 Spacer(modifier = Modifier.height(24.dp))
                 Button(

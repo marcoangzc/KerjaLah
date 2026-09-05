@@ -18,8 +18,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
-import kotlin.time.Duration.Companion.milliseconds
 
 // [B] Module 3 - Application repository, now backed by Supabase.
 // Same public API as the mock version -> ViewModels unchanged.
@@ -42,7 +40,7 @@ object ApplicationRepository {
     // Note: RLS trims what we can see server-side (student -> own rows,
     // employer -> rows of own jobs), so this is never "everything".
     suspend fun refresh() {
-        runCatching {
+        resultOf {
             supabase.from("applications").select().decodeList<ApplicationRow>()
         }.onSuccess { rows ->
             _applications.value = rows.map { it.toDomain() }
@@ -56,8 +54,13 @@ object ApplicationRepository {
 
     // Outcome of an apply attempt. A plain Boolean could not tell "you already
     // applied" apart from "the write was rejected", so the screen showed the
-    // same silent nothing for both.
-    enum class ApplyResult { CREATED, DUPLICATE, FAILED }
+    // same silent nothing for both. Failed now carries WHICH failure it was,
+    // already translated into a sentence a student can act on.
+    sealed interface ApplyResult {
+        data object Created : ApplyResult
+        data object Duplicate : ApplyResult
+        data class Failed(val error: AppError) : ApplyResult
+    }
 
     // --- CRUD: Create (Apply). ---
     // The AI advisor runs BEFORE the insert because RLS lets students
@@ -79,21 +82,24 @@ object ApplicationRepository {
                 it.jobId == jobId && it.studentId == studentId
             }
             // DB unique(job_id, student_id) also guards this.
-            if (duplicate) return@withContext ApplyResult.DUPLICATE
+            if (duplicate) return@withContext ApplyResult.Duplicate
 
             val job = findJobForAdvisor(jobId)
             if (job == null) Log.w(TAG, "Advisor skipped: job $jobId not found")
             val student = UserRepository.currentUser.value
             if (student == null) Log.w(TAG, "Advisor skipped: no logged-in user")
 
+            // The advisor is deliberately fire-and-forget here: AiClient never
+            // throws and never blocks past its own budget, so a Groq outage
+            // costs this application its AI hint and nothing else.
             val ai = if (job != null && student != null) {
-                withTimeoutOrNull(12_000.milliseconds) { AiClient.assessApplication(job, student) }
+                AiClient.assessApplication(job, student).adviceOrNull()
             } else {
                 null
             }
             if (ai == null) Log.w(TAG, "Inserting application WITHOUT advisor data")
 
-            val ok = runCatching {
+            val inserted = resultOf {
                 supabase.from("applications").insert(
                     ApplicationInsert(
                         jobId = jobId,
@@ -104,49 +110,60 @@ object ApplicationRepository {
                         aiReason = ai?.reason,
                     ),
                 )
-            }.onFailure {
-                // The most likely cause here is a database permission error on
-                // the ai_* columns - see supabase_migration_02.sql. Log the
-                // whole thing: the message names the exact column.
-                Log.e(TAG, "Apply failed", it)
-            }.isSuccess
+            }
             refresh()
-            if (ok) ApplyResult.CREATED else ApplyResult.FAILED
+            inserted.fold(
+                onSuccess = { ApplyResult.Created },
+                onFailure = {
+                    // The most likely cause here is a database permission error
+                    // on the ai_* columns - see supabase_migration_02.sql. The
+                    // exception names the exact column, so it goes to Logcat;
+                    // the student gets the mapped sentence instead.
+                    ApplyResult.Failed(it.logged(TAG, "Apply failed"))
+                },
+            )
         }
 
     // Cache-first lookup with a single-row fetch as fallback, so a slow
     // jobs list can never silently disable the advisor.
     private suspend fun findJobForAdvisor(jobId: String): Job? =
-        JobRepository.jobs.value.find { it.id == jobId } ?: runCatching {
+        JobRepository.jobs.value.find { it.id == jobId } ?: resultOf {
             supabase.from("jobs").select {
                 filter { eq("id", jobId) }
             }.decodeSingleOrNull<JobRow>()?.toDomain()
         }.onFailure { Log.e(TAG, "Advisor job fetch failed", it) }.getOrNull()
 
     // --- CRUD: Update (employer decides). ---
-    suspend fun updateStatus(appId: String, status: ApplicationStatus) {
-        runCatching {
+    // Accept / Reject used to fail silently: the chip stayed PENDING and the
+    // employer had no idea whether the student had been told.
+    suspend fun updateStatus(appId: String, status: ApplicationStatus): Outcome<Unit> =
+        write("Update status failed") {
             supabase.from("applications").update({
                 set("status", status.name)
             }) {
                 filter { eq("id", appId) }
             }
-        }.onFailure { Log.e(TAG, "Update status failed", it) }
-        refresh()
-    }
+        }
 
     // --- CRUD: Delete (student withdraws; RLS allows only own PENDING). ---
-    suspend fun withdraw(appId: String) {
-        runCatching {
-            supabase.from("applications").delete {
-                filter { eq("id", appId) }
-            }
-        }.onFailure { Log.e(TAG, "Withdraw failed", it) }
+    suspend fun withdraw(appId: String): Outcome<Unit> = write("Withdraw failed") {
+        supabase.from("applications").delete {
+            filter { eq("id", appId) }
+        }
+    }
+
+    // One write, one re-sync, one mapped error.
+    private suspend inline fun write(what: String, block: () -> Unit): Outcome<Unit> {
+        val result = resultOf(block)
         refresh()
+        return result.fold(
+            onSuccess = { Ok },
+            onFailure = { Outcome.Failure(it.logged(TAG, what)) },
+        )
     }
 
     private suspend fun subscribeToChanges() {
-        runCatching {
+        resultOf {
             val channel = supabase.channel("public-applications")
             channel.postgresChangeFlow<PostgresAction>(schema = "public") {
                 table = "applications"

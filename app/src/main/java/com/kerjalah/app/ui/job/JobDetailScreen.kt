@@ -25,15 +25,19 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.kerjalah.app.ui.common.SnackbarMessageEffect
 
 // [A] Module 2 - Job Detail screen (UI Layer, UDF).
 // jobId arrives from NavGraph; ViewModel is created with it.
@@ -49,8 +53,19 @@ fun JobDetailScreen(
     onBackClick: () -> Unit,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // A rejected apply is temporary news, so it gets a temporary surface. The
+    // old red paragraph above the button stayed until the next apply attempt.
+    SnackbarMessageEffect(
+        message = uiState.message,
+        hostState = snackbarHostState,
+        onShown = { viewModel.onMessageShown() },
+        onAction = { viewModel.onRetry() },
+    )
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             CenterAlignedTopAppBar(
                 title = { Text("Job Detail") },
@@ -166,16 +181,6 @@ fun JobDetailScreen(
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         Spacer(modifier = Modifier.height(24.dp))
-                        // A rejected apply used to look exactly like a button
-                        // that did nothing. Now it says so.
-                        uiState.errorMessage?.let { message ->
-                            Text(
-                                text = message,
-                                color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                        }
                         // Button state comes straight from UiState:
                         // applying -> busy label; applied -> disabled.
                         Button(
